@@ -1,0 +1,20 @@
+from __future__ import annotations
+
+from enum import Enum
+
+
+class Mode(Enum):
+    CHAT = "CHAT"
+    ACTION = "ACTION"
+
+
+class Intent(Enum):
+    UNKNOWN = "UNKNOWN"
+
+    # System actions I actually handle today
+    OPEN_APP = "OPEN_APP"
+    CLOSE_APP = "CLOSE_APP"
+    CLOSE_ALL_APPS = "CLOSE_ALL_APPS"
+
+    # Future ideas I’m parking here for later
+    QUERY_ACTIVITY = "QUERY_ACTIVITY"
