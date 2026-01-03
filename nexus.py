@@ -85,8 +85,12 @@ def main() -> int:
     load_dotenv()
 
     log = _configure_logging()
-    db_path = os.getenv("NEXUS_DB_PATH", "./data/nexus.db")
-    memory = MemoryStore(db_path=db_path)
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is not set in .env")
+
+    memory = MemoryStore(database_url=database_url)
+
 
     router = Router()
     router.register_chat(handle_chat)
