@@ -10,3 +10,17 @@
 .pytest_cache/**/**/**/*
 .pytest_cache/**/**/**/**/*
 .pytest_cache/**/**/**/**/**/*  
+package-lock.json
+package-lock.json/*
+package-lock.json/**/*
+package-lock.json/**/**/*
+package-lock.json/**/**/**/*
+package-lock.json/**/**/**/**/*
+package-lock.json/**/**/**/**/**/*
+__pycache__
+__pycache__/*
+__pycache__/**/*
+__pycache__/**/**/*
+__pycache__/**/**/**/*
+__pycache__/**/**/**/**/*
+__pycache__/**/**/**/**/**/*
