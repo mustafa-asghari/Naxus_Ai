@@ -1,5 +1,5 @@
 import os, uuid, json
-from datetime import datetime, date
+from datetime import datetime, date ,UTC
 from typing import Any, Optional
 
 from dotenv import load_dotenv
@@ -99,7 +99,7 @@ def pg_append_event(
     ts_iso: Optional[str] = None,
 ) -> dict[str, Any]:
     tags = tags or []
-    ts = datetime.fromisoformat(ts_iso) if ts_iso else datetime.utcnow()
+    ts = datetime.fromisoformat(ts_iso) if ts_iso else datetime.now(UTC)
     sql = """
       INSERT INTO events (ts, session_id, kind, payload, tags)
       VALUES (%s, %s, %s, %s::jsonb, %s)
@@ -141,7 +141,7 @@ def ch_insert_note(
 
     row = {
         "id": note_id,
-        "created_at": datetime.utcnow(),
+        "created_at": datetime.now(UTC),
         "source_event_id": src,
         "title": title or "",
         "content": content,

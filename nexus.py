@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import sys
 from pathlib import Path
 import asyncio
@@ -142,13 +143,18 @@ async def log_event(
     session_id: str,
     tags: Optional[list[str]] = None,
 ) -> Optional[str]:
+    """
+    Postgres append_event via MCP. Returns event_id if available.
+    """
     out = await mcp.call_tool("pg_append_event", {
         "kind": kind,
         "payload": payload,
         "session_id": session_id,
         "tags": tags or [],
     })
-    return out.get("event_id")
+    if isinstance(out, dict):
+        return out.get("event_id")
+    return None
 
 
 async def maybe_store_note(
@@ -172,7 +178,7 @@ async def maybe_store_note(
     conf = float(proposal.get("confidence") or 0.0)
     note = proposal.get("note") or {}
 
-    allowed = False
+    # Gate writes
     if conf >= WRITE_CONFIDENCE_AUTO:
         allowed = True
     elif conf >= WRITE_CONFIDENCE_ASK:
@@ -194,7 +200,9 @@ async def maybe_store_note(
         "confidence": conf if conf else 0.8,
         "source_event_id": source_event_id,
     })
-    return out.get("note_id")
+    if isinstance(out, dict):
+        return out.get("note_id")
+    return None
 
 
 # ----------------------------
@@ -204,17 +212,21 @@ async def maybe_store_note(
 async def main() -> int:
     load_dotenv()
     log = _configure_logging()
-    BASE_DIR = Path(__file__).resolve().parent
-    SERVER_PATH = BASE_DIR / "data" / "MCP" / "mcp_server.py"   
+
+    # MCP server path: data/MCP/mcp_server.py
+    base_dir = Path(__file__).resolve().parent
+    server_path = base_dir / "data" / "MCP" / "mcp_server.py"
+
     # Start MCP client and init schemas (Python-only)
-    mcp = MCPMemoryClient(server_cmd=[sys.executable, str(SERVER_PATH)])
+    mcp = MCPMemoryClient(server_cmd=[sys.executable, str(server_path)])
     await mcp.start()
     await mcp.init_schemas()
 
-    router = Router()   
+    # Router / skills
+    router = Router()
     router.register_chat(handle_chat)
     router.register_action(Intent.OPEN_APP, open_app)
-    router.register_action(Intent.CLOSE_APP, close_app) 
+    router.register_action(Intent.CLOSE_APP, close_app)
 
     session_id = os.getenv("NEXUS_SESSION_ID", "default")
 
@@ -236,42 +248,45 @@ async def main() -> int:
                 print("Bye.")
                 return 0
 
-            # --- 1) Log raw user message to Postgres (always)
+            # 1) Parse intent/plan FIRST (fast path)
+            cmd = parse_command(text)
+
+            # 2) Always log raw user message to Postgres
             user_event_id = await log_event(
                 mcp,
                 kind="user_msg",
-                payload={"text": redact(text)},
+                payload={"text": redact(text), "mode": cmd.mode.value},
                 session_id=session_id,
                 tags=["user"],
             )
 
-            # --- 2) Maybe store important memory note to ClickHouse
-            await maybe_store_note(
-                mcp,
-                session_id=session_id,
-                user_text=text,
-                source_event_id=user_event_id,
-            )
-
-            # --- 3) Parse intent/plan (OpenAI planner)
-            cmd = parse_command(text)
-
-            # --- Chat path
+            # ---- CHAT: reply immediately, then do memory
             if cmd.mode == Mode.CHAT:
-                res = router.dispatch_chat(cmd)
-                print(res.message)
+                res = handle_chat(cmd)  # do NOT force JSON here
+                reply_text = (res.message or "").strip() if isinstance(res, Result) else str(res).strip()
+                if not reply_text:
+                    reply_text = "…"
 
-                # log assistant reply
+                print(reply_text)
+
                 await log_event(
                     mcp,
                     kind="assistant_reply",
-                    payload={"text": redact(res.message)},
+                    payload={"text": redact(reply_text)},
                     session_id=session_id,
                     tags=["chat", "assistant"],
                 )
+
+                # Memory extraction AFTER replying (so it never blocks UX)
+                await maybe_store_note(
+                    mcp,
+                    session_id=session_id,
+                    user_text=text,
+                    source_event_id=user_event_id,
+                )
                 continue
 
-            # --- Action path (safety gate)
+            # ---- ACTION safety gate
             safety = check_command(cmd)
             if not safety.allowed:
                 msg = safety.prompt or "Blocked."
@@ -293,6 +308,7 @@ async def main() -> int:
 
             expanded_steps = _expand_steps(cmd)
 
+            # show plan + confirm
             print(_format_plan_for_display(cmd, expanded_steps))
             if not ask_yes_no("\nProceed? (yes/no) "):
                 print("Cancelled.")
@@ -310,7 +326,7 @@ async def main() -> int:
                 )
                 continue
 
-            # --- Execute deterministically
+            # ---- Execute deterministically
             results: List[Result] = []
             for step in expanded_steps:
                 step_check = check_command(Command(raw=cmd.raw, mode=Mode.ACTION, plan=cmd.plan, steps=[step]))
@@ -321,14 +337,14 @@ async def main() -> int:
                 r = router.dispatch_step(step)
                 results.append(r)
 
-            # Print recap
+            # recap
             print("\nResult:")
             for r in results:
                 prefix = "✅" if r.ok else "❌"
                 print(f"{prefix} {r.message}")
             print(_summarize_results(results))
 
-            # --- Log execution to Postgres
+            # log execution
             await log_event(
                 mcp,
                 kind="execution",
