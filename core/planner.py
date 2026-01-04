@@ -96,10 +96,117 @@ def parse_command(raw: str) -> Command:
         # CLOSE_ALL_APPS should be a single step; drop any extras to stay safe
         close_all_steps = [st for st in steps if st.intent == Intent.CLOSE_ALL_APPS]
         if close_all_steps:
-            # Keep only the first CLOSE_ALL_APPS step and discard others (strict)
             steps = [close_all_steps[0]]
 
         if not plan:
             plan = "I will perform the requested actions."
 
     return Command(raw=raw, mode=mode, plan=plan, steps=steps)
+
+
+def propose_memory_note(raw: str) -> Dict[str, Any]:
+    """
+    Ask OpenAI if the user's message contains IMPORTANT memory worth storing as a NOTE.
+
+    Returns a proposal dict:
+    {
+      "should_store": bool,
+      "confidence": 0.0-1.0,
+      "note": {
+        "title": str,
+        "content": str,
+        "deadline": "YYYY-MM-DD" | null,
+        "plan": object | null,
+        "status": str | null,
+        "priority": int | null,
+        "tags": [str] | null
+      } | null
+    }
+    """
+    client = _get_client()
+    model = os.getenv("NEXUS_MEMORY_MODEL", os.getenv("NEXUS_INTENT_MODEL", "gpt-4o-mini"))
+
+    # Optional: provide "today" anchor to resolve "12th January" correctly.
+    # If unset, the extractor still works but dates may be less precise.
+    today_iso = os.getenv("NEXUS_TODAY_ISO", "")  # e.g. "2026-01-04"
+
+    system_prompt = (
+        "You are Nexus Memory Extractor.\n"
+        "Return ONLY valid JSON. No markdown.\n\n"
+        "Task: Decide if the user's message contains IMPORTANT long-term info worth saving.\n\n"
+        "Save as NOTE if it contains:\n"
+        "- goals, deadlines, plans, commitments\n"
+        "- project requirements, constraints, preferences\n"
+        "- info Nexus should remember for future help\n\n"
+        "Do NOT save if it is:\n"
+        "- casual chat, jokes, greetings\n"
+        "- one-off question with no lasting value\n\n"
+        "Rules:\n"
+        "- Never store secrets (passwords, API keys, private keys). If present, exclude them from note.content.\n"
+        "- If a date is mentioned (e.g. '12th January'), infer year using today's date if provided.\n"
+        "- If unsure: should_store=false.\n\n"
+        "Output JSON schema:\n"
+        "{\n"
+        "  \"should_store\": true|false,\n"
+        "  \"confidence\": 0.0-1.0,\n"
+        "  \"note\": {\n"
+        "    \"title\": \"...\",\n"
+        "    \"content\": \"...\",\n"
+        "    \"deadline\": \"YYYY-MM-DD\" or null,\n"
+        "    \"plan\": object or null,\n"
+        "    \"status\": \"active|done|paused\" or null,\n"
+        "    \"priority\": 1-5 or null,\n"
+        "    \"tags\": [\"...\"] or null\n"
+        "  } or null\n"
+        "}\n"
+        "If should_store=false, set note=null.\n"
+    )
+
+    user_content = raw
+    if today_iso:
+        user_content = f"(Today: {today_iso})\nUser message: {raw}"
+
+    resp = client.chat.completions.create(
+        model=model,
+        temperature=0,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ],
+    )
+
+    content = (resp.choices[0].message.content or "").strip()
+
+    try:
+        data: Dict[str, Any] = json.loads(content)
+    except json.JSONDecodeError:
+        return {"should_store": False, "confidence": 0.0, "note": None}
+
+    # Defensive normalization (avoid crashes / weird shapes)
+    should_store = bool(data.get("should_store", False))
+    conf = data.get("confidence", 0.0)
+    if not isinstance(conf, (int, float)):
+        conf = 0.0
+    conf = max(0.0, min(1.0, float(conf)))
+
+    note = data.get("note", None)
+
+    if should_store:
+        if not isinstance(note, dict):
+            return {"should_store": False, "confidence": 0.0, "note": None}
+
+        # Ensure minimum fields exist
+        title = note.get("title")
+        content_field = note.get("content")
+
+        if not isinstance(content_field, str) or not content_field.strip():
+            # fallback to raw message
+            note["content"] = raw
+
+        if not isinstance(title, str) or not title.strip():
+            note["title"] = "Important note"
+
+        # Deadline can be null or string; leave as-is if missing
+        return {"should_store": True, "confidence": conf, "note": note}
+
+    return {"should_store": False, "confidence": conf, "note": None}
