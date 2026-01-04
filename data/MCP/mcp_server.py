@@ -160,18 +160,24 @@ def ch_insert_note(
 @mcp.tool()
 def ch_search_notes_text(query: str, limit: int = 10) -> dict[str, Any]:
     limit = max(1, min(100, int(limit)))
-    q = f"%{query}%"
+
+    # ClickHouse does NOT support ILIKE.
+    # Do: lowerUTF8(field) LIKE lowerUTF8(pattern)
+    pattern = f"%{query}%"
+
     c = ch_client()
     res = c.query(
         """
         SELECT id, created_at, title, content, deadline, tags, confidence
         FROM notes
-        WHERE content ILIKE %(q)s OR title ILIKE %(q)s
+        WHERE lowerUTF8(content) LIKE lowerUTF8({pattern:String})
+           OR lowerUTF8(title)   LIKE lowerUTF8({pattern:String})
         ORDER BY created_at DESC
-        LIMIT %(limit)s
+        LIMIT {limit:UInt32}
         """,
-        parameters={"q": q, "limit": limit},
+        parameters={"pattern": pattern, "limit": limit},
     )
+
     items = []
     for r in res.result_rows:
         items.append({
@@ -185,6 +191,22 @@ def ch_search_notes_text(query: str, limit: int = 10) -> dict[str, Any]:
         })
     return {"count": len(items), "items": items}
 
+@mcp.tool()
+def ch_recent_notes(limit: int = 10) -> dict[str, Any]:
+    limit = max(1, min(50, int(limit)))
+    c = ch_client()
+    res = c.query(
+        """
+        SELECT id, created_at, title, content
+        FROM notes
+        ORDER BY created_at DESC
+        LIMIT {limit:UInt32}
+        """,
+        parameters={"limit": limit},
+    )
+    items = [{"id": str(r[0]), "created_at": str(r[1]), "title": r[2], "content": r[3]} for r in res.result_rows]
+    return {"count": len(items), "items": items}
+    
 if __name__ == "__main__":
     # simplest local mode: stdio (Nexus spawns this server)
     mcp.run(transport="stdio")

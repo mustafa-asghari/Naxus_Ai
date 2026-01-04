@@ -7,6 +7,23 @@ from core.models import ActionStep, Command
 from core.intent import Intent, Mode
 
 
+# Apps/processes you should never try to quit
+PROTECTED_APPS = {
+    "System",
+    "System Settings",
+    "SystemUIServer",
+    "WindowServer",
+    "ControlCenter",
+    "NotificationCenter",
+    "Finder",
+    "Dock",
+    "loginwindow",
+    "Terminal",
+    "iTerm2",
+    "Nexus",
+}
+
+
 @dataclass(frozen=True)
 class SafetyDecision:
     allowed: bool
@@ -25,6 +42,9 @@ def check_step(step: ActionStep) -> SafetyDecision:
         app = step.args.get("app_name")
         if not isinstance(app, str) or not app.strip():
             return SafetyDecision(False, "missing app_name", False, "Blocked: OPEN_APP requires 'app_name'.")
+        # Opening protected apps is fine, but "System" is ambiguous — block it to avoid nonsense
+        if app.strip() in {"System"}:
+            return SafetyDecision(False, "protected app", False, "Blocked: invalid/unsafe app name.")
         return SafetyDecision(True, "ok", False)
 
     # CLOSE_APP validation (graceful quit)
@@ -32,6 +52,8 @@ def check_step(step: ActionStep) -> SafetyDecision:
         app = step.args.get("app_name")
         if not isinstance(app, str) or not app.strip():
             return SafetyDecision(False, "missing app_name", False, "Blocked: CLOSE_APP requires 'app_name'.")
+        if app.strip() in PROTECTED_APPS:
+            return SafetyDecision(False, "protected app", False, f"Blocked: refusing to close protected app: {app}.")
         return SafetyDecision(True, "ok", True)
 
     # CLOSE_ALL_APPS validation (deterministic expansion later)

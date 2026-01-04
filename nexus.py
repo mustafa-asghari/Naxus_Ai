@@ -1,31 +1,36 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 import asyncio
 import logging
 import os
 import re
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from dotenv import load_dotenv
-
+from core.intent import Mode
+# Core
 from core.models import ActionStep, Command, Result
-from core.intent import Intent, Mode
-from core.planner import parse_command, propose_memory_note
-from core.router import Router
+from core.intent import Intent
 from core.safety import check_command
+from core.router import Router
 
-from skills.chat import handle_chat
-from skills.system import close_app, open_app
+# New Plan-B components
+from core.planner import plan_turn
+from core.narrator import narrate_turn
+
+# Skills
+from skills.system import open_app, close_app
 from macos.running_apps import get_running_apps
 
+# MCP
 from data.MCP.mcp_client import MCPMemoryClient
 
 
-# ----------------------------
-# Config / Helpers
-# ----------------------------
+# -------------------------------------------------
+# Config / helpers
+# -------------------------------------------------
 
 WRITE_CONFIDENCE_AUTO = 0.85
 WRITE_CONFIDENCE_ASK = 0.60
@@ -37,31 +42,6 @@ _SECRET_PATTERNS = [
 ]
 
 
-def _configure_logging() -> logging.Logger:
-    app_name = os.getenv("NEXUS_APP_NAME", "nexus")
-    level_name = os.getenv("NEXUS_LOG_LEVEL", "INFO").upper()
-    level = getattr(logging, level_name, logging.INFO)
-
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
-    return logging.getLogger(app_name)
-
-
-def _normalize(text: str) -> str:
-    return text.strip()
-
-
-def _is_exit(text: str) -> bool:
-    return text.lower() in {"quit", "exit", ":q"}
-
-
-def ask_yes_no(prompt: str) -> bool:
-    ans = _normalize(input(prompt)).lower()
-    return ans in {"y", "yes"}
-
-
 def redact(text: str) -> str:
     out = text
     for p in _SECRET_PATTERNS:
@@ -69,293 +49,199 @@ def redact(text: str) -> str:
     return out
 
 
-def _expand_steps(cmd: Command) -> List[ActionStep]:
-    """
-    Turn CLOSE_ALL_APPS into multiple CLOSE_APP steps (deterministic),
-    using your running apps query (macOS host only).
-    """
-    expanded: List[ActionStep] = []
-    for step in cmd.steps:
+def ask_yes_no(prompt: str) -> bool:
+    ans = input(prompt).strip().lower()
+    return ans in {"y", "yes"}
+
+
+def configure_logging() -> logging.Logger:
+    level = getattr(logging, os.getenv("NEXUS_LOG_LEVEL", "INFO").upper())
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    return logging.getLogger("nexus")
+
+
+def expand_steps(actions: list[ActionStep]) -> list[ActionStep]:
+    expanded: list[ActionStep] = []
+    for step in actions:
         if step.intent == Intent.CLOSE_ALL_APPS:
-            running = get_running_apps()
-            for app in running:
-                expanded.append(ActionStep(intent=Intent.CLOSE_APP, args={"app_name": app}))
+            for app in get_running_apps():
+                expanded.append(ActionStep(Intent.CLOSE_APP, {"app_name": app}))
         else:
             expanded.append(step)
     return expanded
 
 
-def _format_plan_for_display(cmd: Command, expanded_steps: List[ActionStep]) -> str:
-    lines = []
-    if cmd.plan:
-        lines.append(cmd.plan)
-    lines.append("")
-    lines.append("Steps:")
-    for i, st in enumerate(expanded_steps, start=1):
-        if st.intent in {Intent.OPEN_APP, Intent.CLOSE_APP}:
-            app = st.args.get("app_name", "?")
-            lines.append(f"{i}. {st.intent.value} → {app}")
-        else:
-            lines.append(f"{i}. {st.intent.value}")
-    return "\n".join(lines)
-
-
-def _summarize_results(results: List[Result]) -> str:
-    ok_count = sum(1 for r in results if r.ok)
-    fail_count = len(results) - ok_count
-    return f"Completed: {ok_count} succeeded, {fail_count} failed."
-
-
-def _validate_note_proposal(proposal: Dict[str, Any]) -> bool:
-    """
-    Strict validation so the model can’t break your storage.
-    """
-    if not isinstance(proposal, dict):
-        return False
-    if "should_store" not in proposal or not isinstance(proposal["should_store"], bool):
-        return False
-    if "confidence" in proposal and not isinstance(proposal["confidence"], (int, float)):
-        return False
-
-    if proposal.get("should_store"):
-        note = proposal.get("note")
-        if not isinstance(note, dict):
-            return False
-        content = note.get("content")
-        if not isinstance(content, str) or not content.strip():
-            return False
-        dl = note.get("deadline")
-        if dl is not None and dl != "" and not isinstance(dl, str):
-            return False
-
-    return True
-
-
-# ----------------------------
-# MCP Logging Helpers
-# ----------------------------
-
-async def log_event(
-    mcp: MCPMemoryClient,
-    *,
-    kind: str,
-    payload: Dict[str, Any],
-    session_id: str,
-    tags: Optional[list[str]] = None,
-) -> Optional[str]:
-    """
-    Postgres append_event via MCP. Returns event_id if available.
-    """
-    out = await mcp.call_tool("pg_append_event", {
-        "kind": kind,
-        "payload": payload,
-        "session_id": session_id,
-        "tags": tags or [],
-    })
-    if isinstance(out, dict):
-        return out.get("event_id")
-    return None
-
-
-async def maybe_store_note(
-    mcp: MCPMemoryClient,
-    *,
-    session_id: str,
-    user_text: str,
-    source_event_id: Optional[str],
-) -> Optional[str]:
-    """
-    OpenAI proposes note; Nexus gates; MCP writes ClickHouse note.
-    Returns note_id if stored.
-    """
-    proposal = propose_memory_note(user_text)
-    if not _validate_note_proposal(proposal):
-        return None
-
-    if not proposal.get("should_store"):
-        return None
-
-    conf = float(proposal.get("confidence") or 0.0)
-    note = proposal.get("note") or {}
-
-    # Gate writes
-    if conf >= WRITE_CONFIDENCE_AUTO:
-        allowed = True
-    elif conf >= WRITE_CONFIDENCE_ASK:
-        allowed = ask_yes_no("This seems important. Save it to memory? (yes/no) ")
-    else:
-        allowed = False
-
-    if not allowed:
-        return None
-
-    out = await mcp.call_tool("ch_insert_note", {
-        "title": str(note.get("title") or ""),
-        "content": redact(str(note.get("content") or user_text)),
-        "deadline": note.get("deadline"),
-        "plan": note.get("plan"),
-        "status": str(note.get("status") or ""),
-        "priority": int(note.get("priority") or 0),
-        "tags": note.get("tags") or [],
-        "confidence": conf if conf else 0.8,
-        "source_event_id": source_event_id,
-    })
-    if isinstance(out, dict):
-        return out.get("note_id")
-    return None
-
-
-# ----------------------------
-# MAIN
-# ----------------------------
+# -------------------------------------------------
+# MAIN LOOP
+# -------------------------------------------------
 
 async def main() -> int:
     load_dotenv()
-    log = _configure_logging()
+    log = configure_logging()
 
-    # MCP server path: data/MCP/mcp_server.py
     base_dir = Path(__file__).resolve().parent
     server_path = base_dir / "data" / "MCP" / "mcp_server.py"
 
-    # Start MCP client and init schemas (Python-only)
+    # MCP client
     mcp = MCPMemoryClient(server_cmd=[sys.executable, str(server_path)])
     await mcp.start()
     await mcp.init_schemas()
 
-    # Router / skills
     router = Router()
-    router.register_chat(handle_chat)
     router.register_action(Intent.OPEN_APP, open_app)
     router.register_action(Intent.CLOSE_APP, close_app)
 
     session_id = os.getenv("NEXUS_SESSION_ID", "default")
 
-    log.info("Starting Nexus")
     print("Nexus started. Type anything. Use 'quit' to exit.")
 
     try:
         while True:
             try:
-                raw = input("> ")
+                raw = input("> ").strip()
             except (EOFError, KeyboardInterrupt):
                 print("\nBye.")
                 return 0
 
-            text = _normalize(raw)
-            if not text:
+            if not raw:
                 continue
-            if _is_exit(text):
+            if raw.lower() in {"quit", "exit", ":q"}:
                 print("Bye.")
                 return 0
 
-            # 1) Parse intent/plan FIRST (fast path)
-            cmd = parse_command(text)
-
-            # 2) Always log raw user message to Postgres
-            user_event_id = await log_event(
-                mcp,
-                kind="user_msg",
-                payload={"text": redact(text), "mode": cmd.mode.value},
-                session_id=session_id,
-                tags=["user"],
-            )
-
-            # ---- CHAT: reply immediately, then do memory
-            if cmd.mode == Mode.CHAT:
-                res = handle_chat(cmd)  # do NOT force JSON here
-                reply_text = (res.message or "").strip() if isinstance(res, Result) else str(res).strip()
-                if not reply_text:
-                    reply_text = "…"
-
-                print(reply_text)
-
-                await log_event(
-                    mcp,
-                    kind="assistant_reply",
-                    payload={"text": redact(reply_text)},
-                    session_id=session_id,
-                    tags=["chat", "assistant"],
-                )
-
-                # Memory extraction AFTER replying (so it never blocks UX)
-                await maybe_store_note(
-                    mcp,
-                    session_id=session_id,
-                    user_text=text,
-                    source_event_id=user_event_id,
-                )
-                continue
-
-            # ---- ACTION safety gate
-            safety = check_command(cmd)
-            if not safety.allowed:
-                msg = safety.prompt or "Blocked."
-                print(msg)
-
-                await log_event(
-                    mcp,
-                    kind="blocked",
-                    payload={
-                        "raw": cmd.raw,
-                        "plan": cmd.plan,
-                        "steps": [{"intent": s.intent.value, "args": s.args} for s in cmd.steps],
-                        "reason": msg,
-                    },
-                    session_id=session_id,
-                    tags=["action", "blocked"],
-                )
-                continue
-
-            expanded_steps = _expand_steps(cmd)
-
-            # show plan + confirm
-            print(_format_plan_for_display(cmd, expanded_steps))
-            if not ask_yes_no("\nProceed? (yes/no) "):
-                print("Cancelled.")
-
-                await log_event(
-                    mcp,
-                    kind="cancelled",
-                    payload={
-                        "raw": cmd.raw,
-                        "plan": cmd.plan,
-                        "steps": [{"intent": s.intent.value, "args": s.args} for s in expanded_steps],
-                    },
-                    session_id=session_id,
-                    tags=["action", "cancelled"],
-                )
-                continue
-
-            # ---- Execute deterministically
-            results: List[Result] = []
-            for step in expanded_steps:
-                step_check = check_command(Command(raw=cmd.raw, mode=Mode.ACTION, plan=cmd.plan, steps=[step]))
-                if not step_check.allowed:
-                    results.append(Result(ok=False, message=step_check.prompt or "Blocked step."))
-                    continue
-
-                r = router.dispatch_step(step)
-                results.append(r)
-
-            # recap
-            print("\nResult:")
-            for r in results:
-                prefix = "✅" if r.ok else "❌"
-                print(f"{prefix} {r.message}")
-            print(_summarize_results(results))
-
-            # log execution
-            await log_event(
-                mcp,
-                kind="execution",
-                payload={
-                    "raw": cmd.raw,
-                    "plan": cmd.plan,
-                    "steps": [{"intent": s.intent.value, "args": s.args} for s in expanded_steps],
-                    "results": [{"ok": r.ok, "message": r.message, "data": r.data} for r in results],
+            # -------------------------------------------------
+            # 1) LOG USER EVENT
+            # -------------------------------------------------
+            user_event = await mcp.call(
+                "pg_append_event",
+                {
+                    "kind": "user_msg",
+                    "payload": {"text": redact(raw)},
+                    "session_id": session_id,
+                    "tags": ["user"],
                 },
-                session_id=session_id,
-                tags=["action", "execution"],
+            )
+            user_event_id = user_event.get("event_id")
+
+            # -------------------------------------------------
+            # 2) PLAN TURN (AI reasoning)
+            # -------------------------------------------------
+            plan = plan_turn(raw)
+
+            tool_bundle: Dict[str, Any] = {
+                "memory_read": None,
+                "memory_write": None,
+                "actions": [],
+            }
+
+            # -------------------------------------------------
+            # 3) MEMORY READ
+            # -------------------------------------------------
+            if plan.memory_read:
+                res = await mcp.call(
+                    "ch_search_notes_text",
+                    {
+                        "query": plan.memory_read.query,
+                        "limit": plan.memory_read.limit,
+                    },
+                )
+                tool_bundle["memory_read"] = res
+
+            # -------------------------------------------------
+            # 4) MEMORY WRITE
+            # -------------------------------------------------
+            # -------------------------------------------------
+# 4) MEMORY WRITE (improved: auto-store goals)
+# -------------------------------------------------
+            if plan.memory_write and plan.memory_write.should_store:
+                conf = float(plan.memory_write.confidence or 0.0)
+                note = plan.memory_write.note or {}
+
+                # Heuristic: treat these as "always store"
+                content_text = str(note.get("content") or raw).lower()
+                always_store = any(k in content_text for k in ["goal", "deadline", "by ", "in 2026", "i want", "i plan", "i will"])
+
+                allowed = False
+                if always_store:
+                    allowed = True
+                elif conf >= WRITE_CONFIDENCE_AUTO:
+                    allowed = True
+                elif conf >= WRITE_CONFIDENCE_ASK:
+                    allowed = ask_yes_no("This seems important. Save it to memory? (yes/no) ")
+
+                if allowed:
+                    res = await mcp.call(
+                        "ch_insert_note",
+                        {
+                            "title": note.get("title", ""),
+                            "content": redact(str(note.get("content") or raw)),
+                            "deadline": note.get("deadline"),
+                            "plan": note.get("plan"),
+                            "status": note.get("status", ""),
+                            "priority": int(note.get("priority") or 0),
+                            "tags": note.get("tags") or [],
+                            "confidence": conf if conf else 0.85,
+                            "source_event_id": user_event_id,
+                        },
+                    )
+                    tool_bundle["memory_write"] = {"stored": True, **res}
+                else:
+                    tool_bundle["memory_write"] = {"stored": False, "reason": "gated"}
+
+
+            # -------------------------------------------------
+            # 5) ACTIONS
+            # -------------------------------------------------
+            expanded_actions = expand_steps(plan.actions)
+
+            if expanded_actions:
+                print("\nPlanned actions:")
+                for i, a in enumerate(expanded_actions, 1):
+                    print(f"{i}. {a.intent.value} {a.args}")
+
+                if ask_yes_no("Proceed? (yes/no) "):
+                    for step in expanded_actions:
+                        safety = check_command(
+                           Command(raw=raw, mode=Mode.ACTION, plan="(turn_plan)", steps=[step])
+                        )
+                        if not safety.allowed:
+                            tool_bundle["actions"].append(
+                                {
+                                    "intent": step.intent.value,
+                                    "args": step.args,
+                                    "ok": False,
+                                    "message": safety.prompt,
+                                }
+                            )
+                            continue
+
+                        result = router.dispatch_step(step)
+                        tool_bundle["actions"].append(
+                            {
+                                "intent": step.intent.value,
+                                "args": step.args,
+                                "ok": result.ok,
+                                "message": result.message,
+                            }
+                        )
+
+            # -------------------------------------------------
+            # 6) NARRATE (AI final response)
+            # -------------------------------------------------
+            reply = narrate_turn(raw, tool_bundle)
+            print(reply)
+
+            await mcp.call(
+                "pg_append_event",
+                {
+                    "kind": "assistant_reply",
+                    "payload": {"text": redact(reply), "tools": tool_bundle},
+                    "session_id": session_id,
+                    "tags": ["assistant"],
+                },
             )
 
     finally:
