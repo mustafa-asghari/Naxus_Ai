@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import subprocess
 from typing import List, Set, Optional, Tuple
+from macos.running_apps import get_running_apps, applescript_quote  
 
 from core.models import Result, ActionStep
 
@@ -56,47 +57,6 @@ def _run(cmd: list[str], timeout: int = CMD_TIMEOUT_SEC) -> tuple[bool, str]:
         return False, f"exception={e!r}"
 
 
-def applescript_quote(s: str) -> str:
-    """
-    Escape string so it survives inside AppleScript double quotes.
-    """
-    return s.replace("\\", "\\\\").replace('"', '\\"')
-
-
-def _default_exclusions() -> Set[str]:
-    raw = os.getenv("NEXUS_EXCLUDE_APPS", "Finder,Terminal,iTerm2,Nexus")
-    parts = [p.strip() for p in raw.split(",")]
-    return {p for p in parts if p}
-
-
-def get_running_apps() -> List[str]:
-    """
-    Ask System Events for the names of foreground apps (not background-only).
-    """
-    script = (
-        'tell application "System Events" to get name of every application process '
-        'whose background only is false'
-    )
-
-    completed = subprocess.run(
-        ["osascript", "-e", script],
-        capture_output=True,
-        text=True,
-        timeout=CMD_TIMEOUT_SEC,
-        check=False,
-    )
-
-    if completed.returncode != 0:
-        return []
-
-    raw = (completed.stdout or "").strip()
-    if not raw:
-        return []
-
-    apps = [a.strip() for a in raw.split(",") if a.strip()]
-    exclusions = _default_exclusions()
-    filtered = [a for a in apps if a not in exclusions]
-    return filtered
 
 
 def _is_running(app_name: str) -> bool:

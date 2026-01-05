@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from core.models import ActionStep, Command
-from core.intent import Intent, Mode
+from core.intent import Intent
 
 
 # Apps/processes you should never try to quit
@@ -67,18 +67,13 @@ def check_step(step: ActionStep) -> SafetyDecision:
 
 
 def check_command(cmd: Command) -> SafetyDecision:
-    # CHAT is always allowed
-    if cmd.mode == Mode.CHAT:
+    # If there are no steps, it's just chat/memory -> ALWAYS ALLOWED
+  def check_command(cmd: Command) -> SafetyDecision:
+    # If there are no steps, it's just chat/memory -> ALWAYS ALLOWED
+    if not cmd.steps:
         return SafetyDecision(True, "chat", False, None)
 
-    # ACTION must have steps
-    if cmd.mode != Mode.ACTION:
-        return SafetyDecision(False, "invalid mode", False, "Blocked: invalid mode.")
-
-    if not cmd.steps:
-        return SafetyDecision(False, "no steps", False, "Blocked: empty action plan.")
-
-    # Determine if any step is risky (still one confirmation in nexus.py)
+    # Determine if any step is risky...
     risky = any(step.intent in {Intent.CLOSE_APP, Intent.CLOSE_ALL_APPS} for step in cmd.steps)
 
     # Validate each step
@@ -88,3 +83,5 @@ def check_command(cmd: Command) -> SafetyDecision:
             return d
 
     return SafetyDecision(True, "ok", risky, None)
+
+

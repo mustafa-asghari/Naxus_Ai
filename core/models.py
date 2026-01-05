@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from core.intent import Intent, Mode
+from core.intent import Intent
 
 
 @dataclass(frozen=True)
@@ -14,8 +14,7 @@ class ActionStep:
 
 @dataclass(frozen=True)
 class Command:
-    raw: str
-    mode: Mode
+    raw: str        
     plan: Optional[str]
     steps: List[ActionStep]
 

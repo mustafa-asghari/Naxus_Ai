@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from dotenv import load_dotenv
-from core.intent import Mode
+
 # Core
 from core.models import ActionStep, Command, Result
 from core.intent import Intent
@@ -32,7 +32,7 @@ from data.MCP.mcp_client import MCPMemoryClient
 # Config / helpers
 # -------------------------------------------------
 
-WRITE_CONFIDENCE_AUTO = 0.85
+WRITE_CONFIDENCE_AUTO = 0.65
 WRITE_CONFIDENCE_ASK = 0.60
 
 _SECRET_PATTERNS = [
@@ -161,13 +161,9 @@ async def main() -> int:
                 note = plan.memory_write.note or {}
 
                 # Heuristic: treat these as "always store"
-                content_text = str(note.get("content") or raw).lower()
-                always_store = any(k in content_text for k in ["goal", "deadline", "by ", "in 2026", "i want", "i plan", "i will"])
-
                 allowed = False
-                if always_store:
-                    allowed = True
-                elif conf >= WRITE_CONFIDENCE_AUTO:
+                # Trust the AI's confidence score
+                if conf >= WRITE_CONFIDENCE_AUTO:
                     allowed = True
                 elif conf >= WRITE_CONFIDENCE_ASK:
                     allowed = ask_yes_no("This seems important. Save it to memory? (yes/no) ")
@@ -205,9 +201,9 @@ async def main() -> int:
                 if ask_yes_no("Proceed? (yes/no) "):
                     for step in expanded_actions:
                         safety = check_command(
-                           Command(raw=raw, mode=Mode.ACTION, plan="(turn_plan)", steps=[step])
-                        )
-                        if not safety.allowed:
+                            Command(raw=raw, plan="(turn_plan)", steps=[step])
+                            )
+                        if not safety.allowed:  
                             tool_bundle["actions"].append(
                                 {
                                     "intent": step.intent.value,

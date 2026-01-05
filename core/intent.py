@@ -3,10 +3,6 @@ from __future__ import annotations
 from enum import Enum
 
 
-class Mode(Enum):
-    CHAT = "CHAT"
-    ACTION = "ACTION"
-
 
 class Intent(Enum):
     UNKNOWN = "UNKNOWN"
