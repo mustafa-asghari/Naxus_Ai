@@ -1,6 +1,7 @@
 import os, uuid, json
 from datetime import datetime, date ,UTC
 from typing import Any, Optional
+from openai import OpenAI
 
 from dotenv import load_dotenv
 import psycopg
@@ -12,7 +13,7 @@ from pathlib import Path
 
 load_dotenv(dotenv_path="/Users/mustafaasghari/code/Naxus/.env")
 
-
+client = OpenAI()   
 
 mcp = FastMCP("nexus-memory", json_response=True)
 
@@ -68,8 +69,12 @@ def init_postgres_schema() -> dict[str, Any]:
 def init_clickhouse_schema() -> dict[str, Any]:
     c = ch_client()
     c.command(f"CREATE DATABASE IF NOT EXISTS {CH_DB}")
+    
+    # Enable vector search features
+    c.command("SET allow_experimental_vector_similarity_index = 1") 
+
     c.command("""
-        CREATE TABLE IF NOT EXISTS notes (
+        CREATE TABLE IF NOT EXISTS notes_v2 (
           id UUID,
           created_at DateTime64(3),
           source_event_id UUID,
@@ -77,13 +82,19 @@ def init_clickhouse_schema() -> dict[str, Any]:
           title String,
           content String,
 
-          deadline Date,        -- 1970-01-01 if unknown
-          plan String,          -- JSON string or empty
-          status String,        -- empty if unknown
-          priority UInt8,       -- 0 if unknown
+          -- The Vector Column
+          embedding Array(Float32),
+
+          deadline Date,
+          plan String,
+          status String,
+          priority UInt8,
 
           tags Array(String),
-          confidence Float32
+          confidence Float32,
+
+          -- UPDATED INDEX TYPE HERE:
+             INDEX idx_embedding embedding TYPE vector_similarity('hnsw', 'cosineDistance', 1536) GRANULARITY 1
         )
         ENGINE = MergeTree
         ORDER BY (created_at)
@@ -138,6 +149,11 @@ def ch_insert_note(
     note_id = uuid.uuid4()
     dl = date.fromisoformat(deadline) if deadline else date(1970, 1, 1)
     src = uuid.UUID(source_event_id) if source_event_id else uuid.UUID(int=0)
+    response = client.embeddings.create(
+            input=content,
+            model="text-embedding-3-small"
+        )
+    embedding_vector = response.data[0].embedding
 
     row = {
         "id": note_id,
@@ -151,31 +167,39 @@ def ch_insert_note(
         "priority": int(max(0, min(255, priority))),
         "tags": tags,
         "confidence": float(confidence),
+        "embedding": embedding_vector
     }
+    # Generate the vector using OpenAI
+    
 
     c = ch_client()
-    c.insert("notes", [row], column_names=list(row.keys()))
+    # We use list(row.values()) to get the actual data, not just the keys
+    c.insert("notes_v2", [list(row.values())], column_names=list(row.keys()))
     return {"ok": True, "note_id": str(note_id)}
 
 @mcp.tool()
 def ch_search_notes_text(query: str, limit: int = 10) -> dict[str, Any]:
     limit = max(1, min(100, int(limit)))
 
-    # ClickHouse does NOT support ILIKE.
-    # Do: lowerUTF8(field) LIKE lowerUTF8(pattern)
-    pattern = f"%{query}%"
+    # 1. Convert the user's search query into a vector (numbers)
+    response = client.embeddings.create(
+        input=query,
+        model="text-embedding-3-small"
+    )
+    query_vector = response.data[0].embedding
 
+    # 2. Ask the database for the notes "closest" to this vector
+    # cosineDistance calculates how similar the meanings are (lower is better)
     c = ch_client()
     res = c.query(
         """
-        SELECT id, created_at, title, content, deadline, tags, confidence
-        FROM notes
-        WHERE lowerUTF8(content) LIKE lowerUTF8({pattern:String})
-           OR lowerUTF8(title)   LIKE lowerUTF8({pattern:String})
-        ORDER BY created_at DESC
+        SELECT id, created_at, title, content, deadline, tags, confidence,
+               cosineDistance(embedding, {query_vector:Array(Float32)}) as score
+        FROM notes_v2
+        ORDER BY score ASC
         LIMIT {limit:UInt32}
         """,
-        parameters={"pattern": pattern, "limit": limit},
+        parameters={"query_vector": query_vector, "limit": limit},
     )
 
     items = []
@@ -188,6 +212,7 @@ def ch_search_notes_text(query: str, limit: int = 10) -> dict[str, Any]:
             "deadline": str(r[4]),
             "tags": r[5],
             "confidence": float(r[6]),
+            "score": float(r[7]), # We can even see how close the match was!
         })
     return {"count": len(items), "items": items}
 
@@ -198,7 +223,7 @@ def ch_recent_notes(limit: int = 10) -> dict[str, Any]:
     res = c.query(
         """
         SELECT id, created_at, title, content
-        FROM notes
+        FROM notes_v2
         ORDER BY created_at DESC
         LIMIT {limit:UInt32}
         """,
@@ -209,5 +234,6 @@ def ch_recent_notes(limit: int = 10) -> dict[str, Any]:
     
 if __name__ == "__main__":
     # simplest local mode: stdio (Nexus spawns this server)
+    init_clickhouse_schema()
     mcp.run(transport="stdio")
                 

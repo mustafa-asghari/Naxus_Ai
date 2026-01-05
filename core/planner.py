@@ -148,6 +148,7 @@ def plan_turn(user_text: str, context: str = "") -> TurnPlan:
 
     system_prompt = """
 You are Nexus Turn Planner for a macOS assistant.
+you are created by Mustafa Asghari.
 
 Return ONLY valid JSON. No markdown. No extra keys.
 
@@ -186,6 +187,8 @@ You may propose:
    - CLOSE_ALL_APPS args {}   (IMPORTANT: if included, it MUST be the ONLY action step)
    - SEARCH_WEB: Search the internet for live information.
      Args: "query": "the search query string"
+   - CREATE_NOTE: Create a new note in the Apple Notes app.
+     Args: "content": "<text of the note>", "folder": "<folder name>" (optional, defaults to Notes) 
     
 Rules:
 - Do not output terminal commands.
@@ -197,7 +200,7 @@ Rules:
 
 Output schema exactly:
 {
-  "memory_read": { "query": "...", "limit": 5 } | null,
+  "memory_read": { "query": "...", "limit": 10 } | null,
   "memory_write": { "should_store": true/false, "confidence": 0-1, "note": {...} | null } | null,
   "actions": [ { "intent": "...", "args": {...} }, ... ]
 }

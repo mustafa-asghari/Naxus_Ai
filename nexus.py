@@ -21,9 +21,10 @@ from core.planner import plan_turn
 from core.narrator import narrate_turn
 
 # Skills
-from skills.system import open_app, close_app
+from skills.system import open_app, close_app 
 from macos.running_apps import get_running_apps
-
+from skills.note import create_note
+from skills.web_search import search_web
 # MCP
 from data.MCP.mcp_client import MCPMemoryClient
 
@@ -66,7 +67,7 @@ def configure_logging() -> logging.Logger:
     )
     # Add this to silence the API request logs
     logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING) 
     logging.getLogger("primp").setLevel(logging.WARNING)
     
     return logging.getLogger("nexus")
@@ -102,6 +103,9 @@ async def main() -> int:
     router = Router()
     router.register_action(Intent.OPEN_APP, open_app)
     router.register_action(Intent.CLOSE_APP, close_app)
+    router.register_action(Intent.SEARCH_WEB, search_web)
+    router.register_action(Intent.CREATE_NOTE, create_note)
+
 
     session_id = os.getenv("NEXUS_SESSION_ID", "default")
 
@@ -141,6 +145,7 @@ async def main() -> int:
             # Get the context first
             app_list = get_running_apps()
             plan = plan_turn(raw, context=f"Running Apps: {', '.join(app_list)}")
+            print(f"DEBUG PLAN: memory_read={plan.memory_read} memory_write={plan.memory_write}")
 
             tool_bundle: Dict[str, Any] = {
                 "memory_read": None,
@@ -159,8 +164,10 @@ async def main() -> int:
                         "limit": plan.memory_read.limit,
                     },
                 )
+                # ADD THIS LINE:
+                print(f"DEBUG SEARCH RESULTS: {res}") 
                 tool_bundle["memory_read"] = res
-
+                
             # -------------------------------------------------
             # 4) MEMORY WRITE
             # -------------------------------------------------

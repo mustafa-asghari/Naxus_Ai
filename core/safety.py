@@ -65,6 +65,9 @@ def check_step(step: ActionStep) -> SafetyDecision:
     if step.intent == Intent.SEARCH_WEB:
         # We allow it even if it has args (the query)
         return SafetyDecision(True, "ok", False) 
+    if step.intent == Intent.CREATE_NOTE:
+    # We allow it even if it has args (the query)
+        return SafetyDecision(True, "ok", False) 
 
     # Default: block anything not handled
     return SafetyDecision(False, "no policy", False, f"Blocked: no safety policy for {step.intent.value}.")
