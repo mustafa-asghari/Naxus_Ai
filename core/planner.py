@@ -134,13 +134,14 @@ def _coerce_action_steps(actions_raw: list[Any]) -> list[ActionStep]:
 # Combined planner (one call) -> TurnPlan
 # ----------------------------
 
-def plan_turn(user_text: str) -> TurnPlan:
+def plan_turn(user_text: str, context: str = "") -> TurnPlan:
     """
     Combined "turn planner" that replaces:
       - parse_command()
       - propose_memory_note()
     with ONE model call that can propose both actions and memory work.
     Nexus still gates + executes.
+    - Use the provided [Context] to resolve fuzzy app names (e.g., "code" -> "Visual Studio Code").
     """
     client = _get_client()
     model = os.getenv("NEXUS_PLAN_MODEL", "gpt-4o-mini")
@@ -183,13 +184,16 @@ You may propose:
    - OPEN_APP  args {"app_name": "<Application Name>"}
    - CLOSE_APP args {"app_name": "<Application Name>"}
    - CLOSE_ALL_APPS args {}   (IMPORTANT: if included, it MUST be the ONLY action step)
-
+   - SEARCH_WEB: Search the internet for live information.
+     Args: "query": "the search query string"
+    
 Rules:
 - Do not output terminal commands.
 - Do not claim you executed anything.
 - If user combines requests (memory + open app), include both.
 - actions MUST always be a list (possibly empty).
 - memory_read and memory_write can be null if not needed.
+- Use the provided [Context] to resolve fuzzy app names (e.g., "code" -> "Visual Studio Code").
 
 Output schema exactly:
 {
@@ -199,15 +203,19 @@ Output schema exactly:
 }
 """.strip()
 
+   # Prepare the user message with context
+    user_content = user_text
+    if context:
+        user_content += f"\n\n[Context]\n{context}"
+
     resp = client.chat.completions.create(
         model=model,
         temperature=0,
         messages=[
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_text},
+            {"role": "user", "content": user_content},
         ],
     )
-
     content = (resp.choices[0].message.content or "").strip()
 
     try:

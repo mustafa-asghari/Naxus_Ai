@@ -4,3 +4,4 @@ psycopg[binary]>=3.1.0
 mcp
 clickhouse-connect
 mcp[cli]
+ddgs

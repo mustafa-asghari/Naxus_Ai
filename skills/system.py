@@ -84,10 +84,10 @@ def _resolve_app_name(requested: str) -> Tuple[Optional[str], Optional[str]]:
 
     if req in PROTECTED_APPS:
         return None, f"Blocked: refusing to use protected app name: {req}"
-
+    
     # Build installed apps list (lightweight scan)
     installed: List[str] = []
-    for d in ("/Applications", os.path.expanduser("~/Applications")):
+    for d in ("/Applications", "/System/Applications", os.path.expanduser("~/Applications")):
         if not os.path.isdir(d):
             continue
         try:

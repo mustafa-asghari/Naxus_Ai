@@ -11,6 +11,6 @@ class Intent(Enum):
     OPEN_APP = "OPEN_APP"
     CLOSE_APP = "CLOSE_APP"
     CLOSE_ALL_APPS = "CLOSE_ALL_APPS"
-
+    SEARCH_WEB = "SEARCH_WEB"
     # Future ideas I’m parking here for later
     QUERY_ACTIVITY = "QUERY_ACTIVITY"

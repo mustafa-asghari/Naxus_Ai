@@ -50,9 +50,13 @@ def redact(text: str) -> str:
 
 
 def ask_yes_no(prompt: str) -> bool:
-    ans = input(prompt).strip().lower()
-    return ans in {"y", "yes"}
-
+    while True:
+        ans = input(prompt).strip().lower()
+        if ans in {"y", "yes"}:
+            return True
+        if ans in {"n", "no"}:
+            return False
+        print("Please answer yes or no.")
 
 def configure_logging() -> logging.Logger:
     level = getattr(logging, os.getenv("NEXUS_LOG_LEVEL", "INFO").upper())
@@ -60,6 +64,11 @@ def configure_logging() -> logging.Logger:
         level=level,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # Add this to silence the API request logs
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("primp").setLevel(logging.WARNING)
+    
     return logging.getLogger("nexus")
 
 
@@ -129,7 +138,9 @@ async def main() -> int:
             # -------------------------------------------------
             # 2) PLAN TURN (AI reasoning)
             # -------------------------------------------------
-            plan = plan_turn(raw)
+            # Get the context first
+            app_list = get_running_apps()
+            plan = plan_turn(raw, context=f"Running Apps: {', '.join(app_list)}")
 
             tool_bundle: Dict[str, Any] = {
                 "memory_read": None,
@@ -198,22 +209,38 @@ async def main() -> int:
                 for i, a in enumerate(expanded_actions, 1):
                     print(f"{i}. {a.intent.value} {a.args}")
 
-                if ask_yes_no("Proceed? (yes/no) "):
-                    for step in expanded_actions:
-                        safety = check_command(
-                            Command(raw=raw, plan="(turn_plan)", steps=[step])
-                            )
-                        if not safety.allowed:  
-                            tool_bundle["actions"].append(
-                                {
-                                    "intent": step.intent.value,
-                                    "args": step.args,
-                                    "ok": False,
-                                    "message": safety.prompt,
-                                }
-                            )
-                            continue
+                # 1. CHECK SAFETY FIRST (The Boss)
+                cmd_obj = Command(raw=raw, plan="(turn_plan)", steps=expanded_actions)
+                safety = check_command(cmd_obj)
 
+                should_run = False
+
+                # Case A: Totally Blocked (e.g., closing a protected app)
+                if not safety.allowed:
+                    print(f"\n🛑 BLOCKED: {safety.reason}")
+                    tool_bundle["actions"].append({
+                        "intent": "BLOCKED", 
+                        "args": {}, 
+                        "ok": False, 
+                        "message": safety.prompt
+                    })
+                
+                # Case B: Risky (Needs permission)
+                elif safety.requires_confirmation:
+                    if ask_yes_no("\n⚠️  This action requires confirmation. Proceed? (yes/no) "):
+                        should_run = True
+                    else:
+                        print("Aborted.")
+
+                # Case C: Safe (Just do it!)
+                else:
+                    should_run = True
+
+                # 2. EXECUTE (If we got the green light)
+                if should_run:
+                    for step in expanded_actions:
+                        # (Optional: Double check individual steps if you want, 
+                        # but check_command covers the whole batch)
                         result = router.dispatch_step(step)
                         tool_bundle["actions"].append(
                             {

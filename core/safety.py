@@ -61,6 +61,10 @@ def check_step(step: ActionStep) -> SafetyDecision:
         if step.args:
             return SafetyDecision(False, "unexpected args", False, "Blocked: CLOSE_ALL_APPS takes no args.")
         return SafetyDecision(True, "ok", True)
+    
+    if step.intent == Intent.SEARCH_WEB:
+        # We allow it even if it has args (the query)
+        return SafetyDecision(True, "ok", False) 
 
     # Default: block anything not handled
     return SafetyDecision(False, "no policy", False, f"Blocked: no safety policy for {step.intent.value}.")
@@ -68,20 +72,21 @@ def check_step(step: ActionStep) -> SafetyDecision:
 
 def check_command(cmd: Command) -> SafetyDecision:
     # If there are no steps, it's just chat/memory -> ALWAYS ALLOWED
-  def check_command(cmd: Command) -> SafetyDecision:
-    # If there are no steps, it's just chat/memory -> ALWAYS ALLOWED
     if not cmd.steps:
         return SafetyDecision(True, "chat", False, None)
 
-    # Determine if any step is risky...
-    risky = any(step.intent in {Intent.CLOSE_APP, Intent.CLOSE_ALL_APPS} for step in cmd.steps)
+    # Check each step. If ANY step needs confirmation, the whole command needs it.
+    requires_confirmation = False
 
-    # Validate each step
     for step in cmd.steps:
         d = check_step(step)
+        
+        # If any step is illegal (blocked), block the whole thing immediately
         if not d.allowed:
             return d
+        
+        # If any step explicitly asks for confirmation (like CLOSE_APP), flag it
+        if d.requires_confirmation:
+            requires_confirmation = True
 
-    return SafetyDecision(True, "ok", risky, None)
-
-
+    return SafetyDecision(True, "ok", requires_confirmation, None)
