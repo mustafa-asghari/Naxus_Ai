@@ -4,40 +4,43 @@ import subprocess
 
 # ... (speak_text function remains the same) ...
 
-def listen_to_user() -> str:
-    """
-    Listens to the microphone with increased patience.
-    """
-    recognizer = sr.Recognizer()
+def listen_to_user():
+    r = sr.Recognizer()
     
-    # NEW: Make Nexus wait longer before cutting you off
-    recognizer.pause_threshold = 1.2  # Wait 1.2 seconds of silence before stopping
-    recognizer.energy_threshold = 300 # Helps with background noise sensitivity
-    recognizer.dynamic_energy_threshold = True
-
-    with sr.Microphone() as source:
-        print("Listening for your command...")
-        recognizer.adjust_for_ambient_noise(source, duration=0.5)
-        
+    # --- PATIENCE SETTINGS (The Fix) ---
+    # 1. How long silence must last to be considered "end of sentence"
+    # 0.8 is default. 2.0 allows you to pause and think without being cut off.
+    r.pause_threshold = 2.0  
+    
+    # 2. How much "non-speech" audio to keep
+    # This helps catch the soft start/end of words
+    r.non_speaking_duration = 0.5 
+    
+    # CHANGE TO 2 IF USING EXTERNAL MIC
+    MIC_INDEX = 0 
+    
+    with sr.Microphone(device_index=MIC_INDEX) as source:
+        print("\n[NEXUS] Listening... (Take your time)")
         try:
-            # increased phrase_time_limit to allow longer sentences
-            audio_data = recognizer.listen(source, timeout=5, phrase_time_limit=15)
+            # We REMOVED 'phrase_time_limit'. Now it listens until YOU stop talking.
+            # timeout=10 means it waits 10s for you to START talking.
+            audio = r.listen(source, timeout=10)
             
-            print("Processing speech...")
-            text = recognizer.recognize_google(audio_data)
-            print(f"You said: {text}")
+            print("[NEXUS] Processing...")
+            text = r.recognize_google(audio)
+            print(f"[USER] {text}")
             return text
             
+        except sr.WaitTimeoutError:
+            # You didn't say anything at all
+            return None
         except sr.UnknownValueError:
-            return ""
-        except sr.RequestError:
-            print("Nexus: Speech service is down.")
-            return ""
-        except Exception:
-            return ""
-        
+            # You spoke, but it was just noise
+            return None
+        except Exception as e:
+            # Some other error
+            return None
 
-import subprocess
 
 def speak_text(text: str):
     """
@@ -48,6 +51,6 @@ def speak_text(text: str):
         # '-v Evan' selects the high-quality male voice.
         # '-r 175' speeds it up slightly to sound conversational (default is usually too slow).
         # If 'Evan' isn't installed, try 'Nathan' or 'Daniel'.
-        subprocess.run(["say", "-v", "Evan", "-r", "195", text], check=False)
+        subprocess.run(["say", "-v", "Evan", "-r", "190", text], check=False)
     except Exception as e:
         print(f"Error in speaking skill: {e}")

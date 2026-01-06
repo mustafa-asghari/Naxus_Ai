@@ -1665,3 +1665,572 @@ Traceback (most recent call last):
   File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 106, in get_pyaudio
     raise AttributeError("Could not find PyAudio; check installation")
 AttributeError: Could not find PyAudio; check installation
+Processing request of type CallToolRequest
+Processing request of type CallToolRequest
+Processing request of type ListToolsRequest
+MCP spawning: /Users/mustafaasghari/code/Nexus/vnev/bin/python3 ['/Users/mustafaasghari/code/Nexus/data/MCP/mcp_server.py']
+MCP env has PG_DSN: True
+Nexus started. Listening... (Say 'quit' to exit)
+⚠️  Warning: PICOVOICE_KEY not found in .env.
+   Listening normally (No wake word mode)...
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 104, in get_pyaudio
+    import pyaudio
+ModuleNotFoundError: No module named 'pyaudio'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 274, in <module>
+    raise SystemExit(asyncio.run(main()))
+                     ~~~~~~~~~~~^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 127, in main
+    raw = listen_to_user()
+  File "/Users/mustafaasghari/code/Nexus/skills/voice.py", line 18, in listen_to_user
+    with sr.Microphone() as source:
+         ~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 76, in __init__
+    self.pyaudio_module = self.get_pyaudio()
+                          ~~~~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 106, in get_pyaudio
+    raise AttributeError("Could not find PyAudio; check installation")
+AttributeError: Could not find PyAudio; check installation
+Processing request of type CallToolRequest
+Processing request of type CallToolRequest
+Processing request of type ListToolsRequest
+MCP spawning: /Users/mustafaasghari/code/Nexus/vnev/bin/python3 ['/Users/mustafaasghari/code/Nexus/data/MCP/mcp_server.py']
+MCP env has PG_DSN: True
+Nexus started. Listening... (Say 'quit' to exit)
+⚠️  Warning: PICOVOICE_KEY not found in .env.
+   Listening normally (No wake word mode)...
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 104, in get_pyaudio
+    import pyaudio
+ModuleNotFoundError: No module named 'pyaudio'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 274, in <module>
+    raise SystemExit(asyncio.run(main()))
+                     ~~~~~~~~~~~^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 127, in main
+    raw = listen_to_user()
+  File "/Users/mustafaasghari/code/Nexus/skills/voice.py", line 18, in listen_to_user
+    with sr.Microphone() as source:
+         ~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 76, in __init__
+    self.pyaudio_module = self.get_pyaudio()
+                          ~~~~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 106, in get_pyaudio
+    raise AttributeError("Could not find PyAudio; check installation")
+AttributeError: Could not find PyAudio; check installation
+Processing request of type CallToolRequest
+Processing request of type CallToolRequest
+Processing request of type ListToolsRequest
+MCP spawning: /Users/mustafaasghari/code/Nexus/vnev/bin/python3 ['/Users/mustafaasghari/code/Nexus/data/MCP/mcp_server.py']
+MCP env has PG_DSN: True
+Nexus started. Listening... (Say 'quit' to exit)
+⚠️  Warning: PICOVOICE_KEY not found in .env.
+   Listening normally (No wake word mode)...
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 104, in get_pyaudio
+    import pyaudio
+ModuleNotFoundError: No module named 'pyaudio'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 274, in <module>
+    raise SystemExit(asyncio.run(main()))
+                     ~~~~~~~~~~~^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 127, in main
+    raw = listen_to_user()
+  File "/Users/mustafaasghari/code/Nexus/skills/voice.py", line 18, in listen_to_user
+    with sr.Microphone() as source:
+         ~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 76, in __init__
+    self.pyaudio_module = self.get_pyaudio()
+                          ~~~~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 106, in get_pyaudio
+    raise AttributeError("Could not find PyAudio; check installation")
+AttributeError: Could not find PyAudio; check installation
+Processing request of type CallToolRequest
+Processing request of type CallToolRequest
+Processing request of type ListToolsRequest
+MCP spawning: /Users/mustafaasghari/code/Nexus/vnev/bin/python3 ['/Users/mustafaasghari/code/Nexus/data/MCP/mcp_server.py']
+MCP env has PG_DSN: True
+Nexus started. Listening... (Say 'quit' to exit)
+⚠️  Warning: PICOVOICE_KEY not found in .env.
+   Listening normally (No wake word mode)...
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 104, in get_pyaudio
+    import pyaudio
+ModuleNotFoundError: No module named 'pyaudio'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 274, in <module>
+    raise SystemExit(asyncio.run(main()))
+                     ~~~~~~~~~~~^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 127, in main
+    raw = listen_to_user()
+  File "/Users/mustafaasghari/code/Nexus/skills/voice.py", line 18, in listen_to_user
+    with sr.Microphone() as source:
+         ~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 76, in __init__
+    self.pyaudio_module = self.get_pyaudio()
+                          ~~~~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 106, in get_pyaudio
+    raise AttributeError("Could not find PyAudio; check installation")
+AttributeError: Could not find PyAudio; check installation
+Processing request of type CallToolRequest
+Processing request of type CallToolRequest
+Processing request of type ListToolsRequest
+MCP spawning: /Users/mustafaasghari/code/Nexus/vnev/bin/python3 ['/Users/mustafaasghari/code/Nexus/data/MCP/mcp_server.py']
+MCP env has PG_DSN: True
+Nexus started. Listening... (Say 'quit' to exit)
+⚠️  Warning: PICOVOICE_KEY not found in .env.
+   Listening normally (No wake word mode)...
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 104, in get_pyaudio
+    import pyaudio
+ModuleNotFoundError: No module named 'pyaudio'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 274, in <module>
+    raise SystemExit(asyncio.run(main()))
+                     ~~~~~~~~~~~^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 127, in main
+    raw = listen_to_user()
+  File "/Users/mustafaasghari/code/Nexus/skills/voice.py", line 18, in listen_to_user
+    with sr.Microphone() as source:
+         ~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 76, in __init__
+    self.pyaudio_module = self.get_pyaudio()
+                          ~~~~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 106, in get_pyaudio
+    raise AttributeError("Could not find PyAudio; check installation")
+AttributeError: Could not find PyAudio; check installation
+Processing request of type CallToolRequest
+Processing request of type CallToolRequest
+Processing request of type ListToolsRequest
+MCP spawning: /Users/mustafaasghari/code/Nexus/vnev/bin/python3 ['/Users/mustafaasghari/code/Nexus/data/MCP/mcp_server.py']
+MCP env has PG_DSN: True
+Nexus started. Listening... (Say 'quit' to exit)
+⚠️  Warning: PICOVOICE_KEY not found in .env.
+   Listening normally (No wake word mode)...
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 104, in get_pyaudio
+    import pyaudio
+ModuleNotFoundError: No module named 'pyaudio'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 274, in <module>
+    raise SystemExit(asyncio.run(main()))
+                     ~~~~~~~~~~~^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 127, in main
+    raw = listen_to_user()
+  File "/Users/mustafaasghari/code/Nexus/skills/voice.py", line 18, in listen_to_user
+    with sr.Microphone() as source:
+         ~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 76, in __init__
+    self.pyaudio_module = self.get_pyaudio()
+                          ~~~~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 106, in get_pyaudio
+    raise AttributeError("Could not find PyAudio; check installation")
+AttributeError: Could not find PyAudio; check installation
+Processing request of type CallToolRequest
+Processing request of type CallToolRequest
+Processing request of type ListToolsRequest
+MCP spawning: /Users/mustafaasghari/code/Nexus/vnev/bin/python3 ['/Users/mustafaasghari/code/Nexus/data/MCP/mcp_server.py']
+MCP env has PG_DSN: True
+Nexus started. Listening... (Say 'quit' to exit)
+⚠️  Warning: PICOVOICE_KEY not found in .env.
+   Listening normally (No wake word mode)...
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 104, in get_pyaudio
+    import pyaudio
+ModuleNotFoundError: No module named 'pyaudio'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 274, in <module>
+    raise SystemExit(asyncio.run(main()))
+                     ~~~~~~~~~~~^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 127, in main
+    raw = listen_to_user()
+  File "/Users/mustafaasghari/code/Nexus/skills/voice.py", line 18, in listen_to_user
+    with sr.Microphone() as source:
+         ~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 76, in __init__
+    self.pyaudio_module = self.get_pyaudio()
+                          ~~~~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 106, in get_pyaudio
+    raise AttributeError("Could not find PyAudio; check installation")
+AttributeError: Could not find PyAudio; check installation
+Processing request of type CallToolRequest
+Processing request of type CallToolRequest
+Processing request of type ListToolsRequest
+MCP spawning: /Users/mustafaasghari/code/Nexus/vnev/bin/python3 ['/Users/mustafaasghari/code/Nexus/data/MCP/mcp_server.py']
+MCP env has PG_DSN: True
+Nexus started. Listening... (Say 'quit' to exit)
+⚠️  Warning: PICOVOICE_KEY not found in .env.
+   Listening normally (No wake word mode)...
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 104, in get_pyaudio
+    import pyaudio
+ModuleNotFoundError: No module named 'pyaudio'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 274, in <module>
+    raise SystemExit(asyncio.run(main()))
+                     ~~~~~~~~~~~^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 127, in main
+    raw = listen_to_user()
+  File "/Users/mustafaasghari/code/Nexus/skills/voice.py", line 18, in listen_to_user
+    with sr.Microphone() as source:
+         ~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 76, in __init__
+    self.pyaudio_module = self.get_pyaudio()
+                          ~~~~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 106, in get_pyaudio
+    raise AttributeError("Could not find PyAudio; check installation")
+AttributeError: Could not find PyAudio; check installation
+Processing request of type CallToolRequest
+Processing request of type CallToolRequest
+Processing request of type ListToolsRequest
+MCP spawning: /Users/mustafaasghari/code/Nexus/vnev/bin/python3 ['/Users/mustafaasghari/code/Nexus/data/MCP/mcp_server.py']
+MCP env has PG_DSN: True
+Nexus started. Listening... (Say 'quit' to exit)
+⚠️  Warning: PICOVOICE_KEY not found in .env.
+   Listening normally (No wake word mode)...
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 104, in get_pyaudio
+    import pyaudio
+ModuleNotFoundError: No module named 'pyaudio'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 274, in <module>
+    raise SystemExit(asyncio.run(main()))
+                     ~~~~~~~~~~~^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 127, in main
+    raw = listen_to_user()
+  File "/Users/mustafaasghari/code/Nexus/skills/voice.py", line 18, in listen_to_user
+    with sr.Microphone() as source:
+         ~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 76, in __init__
+    self.pyaudio_module = self.get_pyaudio()
+                          ~~~~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 106, in get_pyaudio
+    raise AttributeError("Could not find PyAudio; check installation")
+AttributeError: Could not find PyAudio; check installation
+Processing request of type CallToolRequest
+Processing request of type CallToolRequest
+Processing request of type ListToolsRequest
+MCP spawning: /Users/mustafaasghari/code/Nexus/vnev/bin/python3 ['/Users/mustafaasghari/code/Nexus/data/MCP/mcp_server.py']
+MCP env has PG_DSN: True
+Nexus started. Listening... (Say 'quit' to exit)
+⚠️  Warning: PICOVOICE_KEY not found in .env.
+   Listening normally (No wake word mode)...
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 104, in get_pyaudio
+    import pyaudio
+ModuleNotFoundError: No module named 'pyaudio'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 274, in <module>
+    raise SystemExit(asyncio.run(main()))
+                     ~~~~~~~~~~~^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 127, in main
+    raw = listen_to_user()
+  File "/Users/mustafaasghari/code/Nexus/skills/voice.py", line 18, in listen_to_user
+    with sr.Microphone() as source:
+         ~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 76, in __init__
+    self.pyaudio_module = self.get_pyaudio()
+                          ~~~~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 106, in get_pyaudio
+    raise AttributeError("Could not find PyAudio; check installation")
+AttributeError: Could not find PyAudio; check installation
+Processing request of type CallToolRequest
+Processing request of type CallToolRequest
+Processing request of type ListToolsRequest
+MCP spawning: /Users/mustafaasghari/code/Nexus/vnev/bin/python3 ['/Users/mustafaasghari/code/Nexus/data/MCP/mcp_server.py']
+MCP env has PG_DSN: True
+Nexus started. Listening... (Say 'quit' to exit)
+⚠️  Warning: PICOVOICE_KEY not found in .env.
+   Listening normally (No wake word mode)...
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 104, in get_pyaudio
+    import pyaudio
+ModuleNotFoundError: No module named 'pyaudio'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 274, in <module>
+    raise SystemExit(asyncio.run(main()))
+                     ~~~~~~~~~~~^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 127, in main
+    raw = listen_to_user()
+  File "/Users/mustafaasghari/code/Nexus/skills/voice.py", line 18, in listen_to_user
+    with sr.Microphone() as source:
+         ~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 76, in __init__
+    self.pyaudio_module = self.get_pyaudio()
+                          ~~~~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 106, in get_pyaudio
+    raise AttributeError("Could not find PyAudio; check installation")
+AttributeError: Could not find PyAudio; check installation
+Processing request of type CallToolRequest
+Processing request of type CallToolRequest
+Processing request of type ListToolsRequest
+Processing request of type CallToolRequest
+Processing request of type CallToolRequest
+Processing request of type ListToolsRequest
+Processing request of type CallToolRequest
+Processing request of type CallToolRequest
+Processing request of type ListToolsRequest
+Processing request of type CallToolRequest
+Processing request of type CallToolRequest
+Processing request of type ListToolsRequest
+Processing request of type CallToolRequest
+Processing request of type CallToolRequest
+Processing request of type ListToolsRequest
+Processing request of type CallToolRequest
+Processing request of type CallToolRequest
+Processing request of type ListToolsRequest
+2026-01-06 19:16:50,830 ERROR asyncio: an error occurred during closing of asynchronous generator <async_generator object stdio_client at 0x10ab51000>
+asyncgen: <async_generator object stdio_client at 0x10ab51000>
+  + Exception Group Traceback (most recent call last):
+  |   File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/anyio/_backends/_asyncio.py", line 783, in __aexit__
+  |     raise BaseExceptionGroup(
+  |         "unhandled errors in a TaskGroup", self._exceptions
+  |     ) from None
+  | BaseExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/mcp/client/stdio/__init__.py", line 189, in stdio_client
+    |     yield read_stream, write_stream
+    | GeneratorExit
+    +------------------------------------
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/mcp/client/stdio/__init__.py", line 183, in stdio_client
+    anyio.create_task_group() as tg,
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/anyio/_backends/_asyncio.py", line 789, in __aexit__
+    if self.cancel_scope.__exit__(type(exc), exc, exc.__traceback__):
+       ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/anyio/_backends/_asyncio.py", line 461, in __exit__
+    raise RuntimeError(
+    ...<2 lines>...
+    )
+RuntimeError: Attempted to exit cancel scope in a different task than it was entered in
+MCP spawning: /Users/mustafaasghari/code/Nexus/vnev/bin/python3 ['/Users/mustafaasghari/code/Nexus/data/MCP/mcp_server.py']
+MCP env has PG_DSN: True
+Nexus started. Listening... (Say 'quit' to exit)
+Listening for 'Jarvis'...
+Wake word detected!
+Ding!
+Listening for your command...
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 127, in main
+    raw = listen_to_user()
+  File "/Users/mustafaasghari/code/Nexus/skills/voice.py", line 24, in listen_to_user
+    audio_data = recognizer.listen(source, timeout=5, phrase_time_limit=15)
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 461, in listen
+    for a in result:
+             ^^^^^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 531, in _listen
+    buffer = source.stream.read(source.CHUNK)
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/speech_recognition/__init__.py", line 192, in read
+    return self.pyaudio_stream.read(size, exception_on_overflow=False)
+           ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/pyaudio/__init__.py", line 570, in read
+    return pa.read_stream(self._stream, num_frames,
+           ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+                          exception_on_overflow)
+                          ^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 157, in _on_sigint
+    raise KeyboardInterrupt()
+KeyboardInterrupt
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 272, in main
+    await mcp.stop()
+  File "/Users/mustafaasghari/code/Nexus/data/MCP/mcp_client.py", line 36, in stop
+    await self._session.__aexit__(None, None, None)
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/mcp/shared/session.py", line 238, in __aexit__
+    return await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/anyio/_backends/_asyncio.py", line 787, in __aexit__
+    raise exc_val
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/anyio/_backends/_asyncio.py", line 755, in __aexit__
+    await self._on_completed_fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 274, in <module>
+    raise SystemExit(asyncio.run(main()))
+                     ~~~~~~~~~~~^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 123, in run
+    raise KeyboardInterrupt()
+KeyboardInterrupt
+Processing request of type CallToolRequest
+Processing request of type CallToolRequest
+Processing request of type ListToolsRequest
+Processing request of type CallToolRequest
+Processing request of type CallToolRequest
+Processing request of type ListToolsRequest
+MCP spawning: /Users/mustafaasghari/code/Nexus/vnev/bin/python3 ['/Users/mustafaasghari/code/Nexus/data/MCP/mcp_server.py']
+MCP env has PG_DSN: True
+Nexus started. Listening... (Say 'quit' to exit)
+Listening for 'Jarvis'...
+Traceback (most recent call last):
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 274, in <module>
+    raise SystemExit(asyncio.run(main()))
+                     ~~~~~~~~~~~^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/nexus.py", line 122, in main
+    if not wait_for_wake_word():
+           ~~~~~~~~~~~~~~~~~~^^
+  File "/Users/mustafaasghari/code/Nexus/skills/wake_word.py", line 56, in wait_for_wake_word
+  File "/Users/mustafaasghari/code/Nexus/vnev/lib/python3.13/site-packages/pvrecorder/_pvrecorder.py", line 213, in read
+    raise self._PVRECORDER_STATUS_TO_EXCEPTION[status]("Failed to read from device.")
+OSError: Failed to read from device.

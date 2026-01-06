@@ -67,7 +67,6 @@ def configure_logging() -> logging.Logger:
         level=level,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    # Add this to silence the API request logs
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING) 
     logging.getLogger("primp").setLevel(logging.WARNING)
@@ -97,7 +96,6 @@ async def main() -> int:
     base_dir = Path(__file__).resolve().parent
     server_path = base_dir / "data" / "MCP" / "mcp_server.py"
 
-    # MCP client initialization
     mcp = MCPMemoryClient(server_cmd=[sys.executable, str(server_path)])
     await mcp.start()
     await mcp.init_schemas()
@@ -112,163 +110,169 @@ async def main() -> int:
     
     print("Nexus started. Listening... (Say 'quit' to exit)")
     
-    # Initialize short-term memory list
     chat_history = []
 
     try:
+        # --- OUTER LOOP: THE GUARD (Sleep Mode) ---
         while True:
-            # 1. WAKE WORD (Blocks here until you say "Hey Nexus")
-            # If this fails/returns False, we loop to try again instead of crashing
+            # 1. Wait here silently until you say "Jarvis"
             if not wait_for_wake_word():
                 continue 
 
-            # 2. LISTENING (The "Big Brain")
-            # Play a sound here if your wake_word.py doesn't do it
-            raw = listen_to_user() 
-            if not raw:
-                continue
-            # --- CLEANUP 2: No Manual Exit Logic Here ---
-            # We removed the "if raw in EXIT_WORDS" check.
-            # We now trust the Planner (Step 2) to tell us when to quit.
-
-            # -------------------------------------------------
-            # 1) LOG USER EVENT
-            # -------------------------------------------------
-            user_event = await mcp.call(
-                "pg_append_event",
-                {
-                    "kind": "user_msg",
-                    "payload": {"text": redact(raw)},
-                    "session_id": session_id,
-                    "tags": ["user"],
-                },
-            )
-            user_event_id = user_event.get("event_id")
-
-            # -------------------------------------------------
-            # 2) PLAN TURN (With Memory)
-            # -------------------------------------------------
-            app_list = get_running_apps()
+            # --- INNER LOOP: THE CONVERSATION (Awake Mode) ---
+            print("--- ENTERING CONVERSATION MODE ---")
             
-            # Convert the last 4 messages into a text block for context
-            history_text = "\n".join(chat_history[-4:]) 
-            
-            # Pass history to the planner so it understands "them", "it", etc.
-            plan = plan_turn(
-                raw, 
-                history=history_text, 
-                context=f"Running Apps: {', '.join(app_list)}"
-            )
-            
-            tool_bundle: Dict[str, Any] = {
-                "memory_read": None,
-                "memory_write": None,
-                "actions": [],
-            }
-
-            # -------------------------------------------------
-            # 3) MEMORY READ
-            # -------------------------------------------------
-            if plan.memory_read:
-                res = await mcp.call("ch_search_notes_text", {
-                    "query": plan.memory_read.query,
-                    "limit": plan.memory_read.limit,
-                })
-                tool_bundle["memory_read"] = res
+            conversation_active = True
+            while conversation_active:
                 
-            # -------------------------------------------------
-            # 4) MEMORY WRITE
-            # -------------------------------------------------
-            if plan.memory_write and plan.memory_write.should_store:
-                conf = float(plan.memory_write.confidence or 0.0)
-                note = plan.memory_write.note or {}
+                # 2. Listen for command (No "Jarvis" needed here)
+                raw = listen_to_user() 
                 
-                allowed = False
-                if conf >= WRITE_CONFIDENCE_AUTO:
-                    allowed = True
-                elif conf >= WRITE_CONFIDENCE_ASK:
-                    allowed = ask_yes_no("Save this to memory? ")
+                # If you stop talking (silence), just listen again
+                if not raw:
+                    continue
 
-                if allowed:
-                    res = await mcp.call("ch_insert_note", {
-                        "title": note.get("title", ""),
-                        "content": redact(str(note.get("content") or raw)),
-                        "deadline": note.get("deadline"),
-                        "plan": note.get("plan"),
-                        "status": note.get("status", ""),
-                        "priority": int(note.get("priority") or 0),
-                        "tags": note.get("tags") or [],
-                        "confidence": conf,
-                        "source_event_id": user_event_id,
+                # -------------------------------------------------
+                # LOG USER EVENT
+                # -------------------------------------------------
+                user_event = await mcp.call(
+                    "pg_append_event",
+                    {
+                        "kind": "user_msg",
+                        "payload": {"text": redact(raw)},
+                        "session_id": session_id,
+                        "tags": ["user"],
+                    },
+                )
+                user_event_id = user_event.get("event_id")
+
+                # -------------------------------------------------
+                # PLAN TURN
+                # -------------------------------------------------
+                app_list = get_running_apps()
+                history_text = "\n".join(chat_history[-4:]) 
+                
+                plan = plan_turn(
+                    raw, 
+                    history=history_text, 
+                    context=f"Running Apps: {', '.join(app_list)}"
+                )
+                
+                tool_bundle: Dict[str, Any] = {
+                    "memory_read": None,
+                    "memory_write": None,
+                    "actions": [],
+                }
+
+                # -------------------------------------------------
+                # MEMORY OPS
+                # -------------------------------------------------
+                if plan.memory_read:
+                    res = await mcp.call("ch_search_notes_text", {
+                        "query": plan.memory_read.query,
+                        "limit": plan.memory_read.limit,
                     })
-                    tool_bundle["memory_write"] = {"stored": True, **res}
-
-            # -------------------------------------------------
-            # 5) ACTIONS (EXECUTION)
-            # -------------------------------------------------
-            expanded_actions = expand_steps(plan.actions)
-            
-            # --- SMART EXIT CHECK ---
-            # This is where the AI actually tells us to quit
-            for step in expanded_actions:
-                if step.intent == Intent.EXIT:
-                    print("Nexus: Goodbye!")
-                    speak_text("Goodbye, sir.")
-                    return 0
-            # ------------------------
-
-            if expanded_actions:
-                cmd_obj = Command(raw=raw, plan="(turn_plan)", steps=expanded_actions)
-                safety = check_command(cmd_obj)
-                
-                should_run = False
-                if not safety.allowed:
-                    msg = safety.prompt or "I cannot do that."
-                    print(f"🛑 {msg}")
-                    speak_text(msg)
-                    tool_bundle["actions"].append({"intent": "BLOCKED", "ok": False, "message": msg})
-                
-                elif safety.requires_confirmation:
-                    warning_msg = safety.prompt or "This action requires confirmation."
-                    speak_text(warning_msg)
+                    tool_bundle["memory_read"] = res
                     
-                    if ask_yes_no(f"\n⚠️ {warning_msg} Proceed? (yes/no) "):
-                        should_run = True
-                    else:
-                        print("Aborted.")
-                        speak_text("Okay, I won't do it.")
-                else:
-                    should_run = True
+                if plan.memory_write and plan.memory_write.should_store:
+                    conf = float(plan.memory_write.confidence or 0.0)
+                    note = plan.memory_write.note or {}
+                    
+                    allowed = False
+                    if conf >= WRITE_CONFIDENCE_AUTO:
+                        allowed = True
+                    elif conf >= WRITE_CONFIDENCE_ASK:
+                        allowed = ask_yes_no("Save this to memory? ")
 
-                if should_run:
-                    for step in expanded_actions:
-                        result = router.dispatch_step(step)
-                        tool_bundle["actions"].append({
-                            "intent": step.intent.value,
-                            "ok": result.ok,
-                            "message": result.message,
+                    if allowed:
+                        res = await mcp.call("ch_insert_note", {
+                            "title": note.get("title", ""),
+                            "content": redact(str(note.get("content") or raw)),
+                            "deadline": note.get("deadline"),
+                            "plan": note.get("plan"),
+                            "status": note.get("status", ""),
+                            "priority": int(note.get("priority") or 0),
+                            "tags": note.get("tags") or [],
+                            "confidence": conf,
+                            "source_event_id": user_event_id,
                         })
+                        tool_bundle["memory_write"] = {"stored": True, **res}
 
-            # -------------------------------------------------
-            # 6) NARRATE & SPEAK
-            # -------------------------------------------------
-            reply = narrate_turn(raw, tool_bundle)
-            print(f"Nexus: {reply}")
-            speak_text(reply) 
+                # -------------------------------------------------
+                # ACTIONS (EXECUTION)
+                # -------------------------------------------------
+                expanded_actions = expand_steps(plan.actions)
+                
+                # --- NEW: CHECK FOR EXIT ---
+                # This breaks the INNER loop, sending you back to the GUARD loop
+                should_sleep = False
+                for step in expanded_actions:
+                    if step.intent == Intent.EXIT:
+                        print("Nexus: Going to sleep.")
+                        speak_text("Going to sleep, sir.")
+                        should_sleep = True
+                        break
+                
+                if should_sleep:
+                    # Break the Inner Loop -> Go back to wait_for_wake_word()
+                    conversation_active = False
+                    break 
 
-            # Log reply
-            await mcp.call("pg_append_event", {
-                "kind": "assistant_reply",
-                "payload": {"text": redact(reply), "tools": tool_bundle},
-                "session_id": session_id,
-                "tags": ["assistant"],
-            })
-            
-            # Update Short-Term Memory
-            chat_history.append(f"User: {raw}")
-            chat_history.append(f"Nexus: {reply}")
+                if expanded_actions:
+                    cmd_obj = Command(raw=raw, plan="(turn_plan)", steps=expanded_actions)
+                    safety = check_command(cmd_obj)
+                    
+                    should_run = False
+                    if not safety.allowed:
+                        msg = safety.prompt or "I cannot do that."
+                        print(f"🛑 {msg}")
+                        speak_text(msg)
+                        tool_bundle["actions"].append({"intent": "BLOCKED", "ok": False, "message": msg})
+                    
+                    elif safety.requires_confirmation:
+                        warning_msg = safety.prompt or "This action requires confirmation."
+                        speak_text(warning_msg)
+                        # For voice, we might want to listen for 'yes' here, 
+                        # but for now we fallback to terminal input or assume user sees it
+                        if ask_yes_no(f"\n⚠️ {warning_msg} Proceed? (yes/no) "):
+                            should_run = True
+                        else:
+                            print("Aborted.")
+                            speak_text("Okay, I won't do it.")
+                    else:
+                        should_run = True
+
+                    if should_run:
+                        for step in expanded_actions:
+                            result = router.dispatch_step(step)
+                            tool_bundle["actions"].append({
+                                "intent": step.intent.value,
+                                "ok": result.ok,
+                                "message": result.message,
+                            })
+
+                # -------------------------------------------------
+                # NARRATE & SPEAK
+                # -------------------------------------------------
+                reply = narrate_turn(raw, tool_bundle)
+                print(f"Nexus: {reply}")
+                speak_text(reply) 
+
+                await mcp.call("pg_append_event", {
+                    "kind": "assistant_reply",
+                    "payload": {"text": redact(reply), "tools": tool_bundle},
+                    "session_id": session_id,
+                    "tags": ["assistant"],
+                })
+                
+                chat_history.append(f"User: {raw}")
+                chat_history.append(f"Nexus: {reply}")
 
     finally:
         await mcp.stop()
+
 if __name__ == "__main__":
-    raise SystemExit(asyncio.run(main()))
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass

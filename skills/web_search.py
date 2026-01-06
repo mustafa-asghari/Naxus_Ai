@@ -1,4 +1,4 @@
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 from core.models import ActionStep, Result
 
 def search_web(step: ActionStep) -> Result:
