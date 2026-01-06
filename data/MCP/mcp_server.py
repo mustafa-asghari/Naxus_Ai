@@ -3,15 +3,17 @@ from datetime import datetime, date ,UTC
 from typing import Any, Optional
 from openai import OpenAI
 
-from dotenv import load_dotenv
 import psycopg
 from psycopg.types.json import Jsonb
 import clickhouse_connect   
 from mcp.server.fastmcp import FastMCP
 from pathlib import Path
+from dotenv import load_dotenv
 
 
-load_dotenv(dotenv_path="/Users/mustafaasghari/code/Naxus/.env")
+# Load env from the project root (fixes incorrect hardcoded path)
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(PROJECT_ROOT / ".env")
 
 client = OpenAI()   
 
@@ -36,6 +38,21 @@ def ch_client():
         username=CH_USER, password=CH_PASSWORD,
         database=CH_DB,
     )
+
+# Simple guard so we don't attempt inserts/queries before the table exists.
+_CH_SCHEMA_READY = False
+
+
+def _ensure_ch_schema() -> None:
+    """
+    Make sure the ClickHouse database/table exist before reads or writes.
+    Safe to call multiple times; runs DDL only once per process.
+    """
+    global _CH_SCHEMA_READY
+    if _CH_SCHEMA_READY:
+        return
+    init_clickhouse_schema()
+    _CH_SCHEMA_READY = True
 
 @mcp.tool()
 def init_postgres_schema() -> dict[str, Any]:
@@ -132,54 +149,77 @@ def pg_upsert_setting(key: str, value: dict[str, Any]) -> dict[str, Any]:
     with pg_conn() as conn, conn.cursor() as cur:
         cur.execute(sql, (key, Jsonb(value)))
     return {"ok": True}
+@mcp.tool()
+def ch_clear_notes() -> dict[str, Any]:
+    """
+    Clears all notes from the notes_v2 table.
+    Use this to start fresh or remove corrupted vector data.
+    """
+    c = ch_client()
+    # TRUNCATE is a fast way to delete all rows in ClickHouse
+    c.command("TRUNCATE TABLE notes_v2")
+    return {"ok": True, "message": "All notes have been cleared from memory."}
 
 @mcp.tool()
 def ch_insert_note(
     content: str,
-    title: str = "",
+    title: Optional[str] = None,
     deadline: Optional[str] = None,        # YYYY-MM-DD or null
     plan: Optional[dict[str, Any]] = None, # JSON or null
-    status: str = "",
-    priority: int = 0,
+    status: Optional[str] = None,
+    priority: Optional[int] = None,
     tags: Optional[list[str]] = None,
-    confidence: float = 0.8,
+    confidence: Optional[float] = None,
     source_event_id: Optional[str] = None,
 ) -> dict[str, Any]:
+    _ensure_ch_schema()
+
+    # Coerce None to safe defaults
+    title = title or ""
+    status = status or ""
+    priority = priority if priority is not None else 0
     tags = tags or []
+    confidence = confidence if confidence is not None else 0.8
+
     note_id = uuid.uuid4()
-    dl = date.fromisoformat(deadline) if deadline else date(1970, 1, 1)
+    dl = date.fromisoformat(deadline) if deadline and deadline.strip() else date(1970, 1, 1)
     src = uuid.UUID(source_event_id) if source_event_id else uuid.UUID(int=0)
+
     response = client.embeddings.create(
-            input=content,
-            model="text-embedding-3-small"
-        )
+        input=content,
+        model="text-embedding-3-small"
+    )
     embedding_vector = response.data[0].embedding
 
-    row = {
-        "id": note_id,
-        "created_at": datetime.now(UTC),
-        "source_event_id": src,
-        "title": title or "",
-        "content": content,
-        "deadline": dl,
-        "plan": json.dumps(plan) if plan else "",
-        "status": status or "",
-        "priority": int(max(0, min(255, priority))),
-        "tags": tags,
-        "confidence": float(confidence),
-        "embedding": embedding_vector
-    }
-    # Generate the vector using OpenAI
-    
+    row_data = [
+        str(note_id),                                  # id -> UUID
+        datetime.now(UTC),                             # created_at -> DateTime64
+        str(src),                                      # source_event_id -> UUID
+        title,                                         # title -> String
+        content,                                       # content -> String
+        embedding_vector,                              # embedding -> Array(Float32)
+        dl,                                            # deadline -> Date
+        json.dumps(plan) if plan else "",              # plan -> String
+        status,                                        # status -> String
+        int(max(0, min(255, priority))),               # priority -> UInt8
+        tags,                                          # tags -> Array(String)
+        float(confidence),                             # confidence -> Float32
+    ]
+
+    column_names = [
+        "id", "created_at", "source_event_id", "title", "content",
+        "embedding", "deadline", "plan", "status", "priority", "tags", "confidence"
+    ]
 
     c = ch_client()
-    # We use list(row.values()) to get the actual data, not just the keys
-    c.insert("notes_v2", [list(row.values())], column_names=list(row.keys()))
+    c.insert("notes_v2", [row_data], column_names=column_names)
     return {"ok": True, "note_id": str(note_id)}
 
 @mcp.tool()
 def ch_search_notes_text(query: str, limit: int = 10) -> dict[str, Any]:
     limit = max(1, min(100, int(limit)))
+
+    _ensure_ch_schema()
 
     # 1. Convert the user's search query into a vector (numbers)
     response = client.embeddings.create(
@@ -212,7 +252,7 @@ def ch_search_notes_text(query: str, limit: int = 10) -> dict[str, Any]:
             "deadline": str(r[4]),
             "tags": r[5],
             "confidence": float(r[6]),
-            "score": float(r[7]), # We can even see how close the match was!
+            "score": float(r[7]),
         })
     return {"count": len(items), "items": items}
 

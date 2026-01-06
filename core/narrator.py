@@ -17,7 +17,7 @@ def narrate_turn(user_text: str, tool_bundle: Dict[str, Any]) -> str:
     client = _get_client()
     model = os.getenv("NEXUS_NARRATE_MODEL", "gpt-4o-mini")
 
-    system_prompt = """
+    system_prompt = system_prompt = """
 You are Nexus Narrator.
 Write ONE concise helpful response to the user.
 
@@ -26,9 +26,10 @@ You are given:
 - the results from memory tools and action execution
 
 Rules:
+- Only summarize memory items if they are highly relevant to the query (check the 'score' field; scores closer to 0 are better). 
+- If the best score is high (e.g., above 0.5) or no items are found, politely state you don't have that information.
+- Use the 'content' field of the memory items to answer the user's question.
 - Never say you did something unless the tool result says ok=true.
-- If memory read returned items, summarize them briefly and answer the question.
-- If nothing found, say you couldn't find it.
 - Mention actions performed and their success/failure.
 - Do NOT output JSON. Output plain text only.
 """

@@ -160,6 +160,7 @@ You may propose:
    - Use when the user asks to recall past info ("what did I do", "my goals", "my deadline", "my exam score", etc.)
    - Format: { "query": "<string>", "limit": 5 }
 
+
 2) memory_write:
    - Use when the user states important info to remember:
      goals, deadlines, plans, commitments, constraints, preferences
@@ -179,6 +180,7 @@ You may propose:
      }
    - If not important: should_store=false and note=null
    - Never include secrets in note.content.
+   -you can also clear the memory the tool have been passed.
 
 3) actions: a list of action steps (can be empty)
    Supported intents:
