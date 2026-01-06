@@ -5,3 +5,8 @@ mcp
 clickhouse-connect
 mcp[cli]
 ddgs
+SpeechRecognition
+pyaudio
+pvporcupine
+pvrecorder
+simpleaudio

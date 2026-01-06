@@ -15,3 +15,5 @@ class Intent(Enum):
     # Future ideas I’m parking here for later
     QUERY_ACTIVITY = "QUERY_ACTIVITY"
     CREATE_NOTE = "CREATE_NOTE"
+
+    EXIT = "EXIT"

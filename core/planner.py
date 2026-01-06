@@ -13,7 +13,7 @@ from core.models import ActionStep
 
 
 # ----------------------------
-# TurnPlan schema (planner output)
+# TurnPlan schema
 # ----------------------------
 
 @dataclass
@@ -31,12 +31,6 @@ class MemoryWrite:
 
 @dataclass
 class TurnPlan:
-    """
-    One user message can propose:
-    - memory_read (optional)  -> Nexus may call ch_search_notes_text
-    - memory_write (optional) -> Nexus may call ch_insert_note (gated)
-    - actions (optional list) -> Nexus may execute (gated/confirmed)
-    """
     memory_read: Optional[MemoryRead]
     memory_write: Optional[MemoryWrite]
     actions: List[ActionStep]
@@ -65,14 +59,10 @@ def _validate_turn_plan_dict(d: Any) -> bool:
 
     # actions
     actions = d.get("actions")
-    if actions is None:
-        return False
-    if not isinstance(actions, list):
+    if actions is None or not isinstance(actions, list):
         return False
     for a in actions:
-        if not isinstance(a, dict):
-            return False
-        if "intent" not in a:
+        if not isinstance(a, dict) or "intent" not in a:
             return False
         if "args" in a and a["args"] is not None and not isinstance(a["args"], dict):
             return False
@@ -84,8 +74,6 @@ def _validate_turn_plan_dict(d: Any) -> bool:
             return False
         if not isinstance(mr.get("query"), str) or not mr["query"].strip():
             return False
-        if "limit" in mr and not isinstance(mr["limit"], (int, float)):
-            return False
 
     # memory_write
     mw = d.get("memory_write")
@@ -94,17 +82,12 @@ def _validate_turn_plan_dict(d: Any) -> bool:
             return False
         if "should_store" not in mw or not isinstance(mw["should_store"], bool):
             return False
-        if "confidence" in mw and not isinstance(mw["confidence"], (int, float)):
-            return False
         if mw.get("should_store"):
             note = mw.get("note")
             if note is None or not isinstance(note, dict):
                 return False
             content = note.get("content")
             if not isinstance(content, str) or not content.strip():
-                return False
-            dl = note.get("deadline")
-            if dl is not None and dl != "" and not isinstance(dl, str):
                 return False
 
     return True
@@ -122,7 +105,6 @@ def _coerce_action_steps(actions_raw: list[Any]) -> list[ActionStep]:
             args = {}
         steps.append(ActionStep(intent=intent, args=args))
 
-    # strict: if CLOSE_ALL_APPS appears, keep ONLY that one step
     if any(st.intent == Intent.CLOSE_ALL_APPS for st in steps):
         first = next(st for st in steps if st.intent == Intent.CLOSE_ALL_APPS)
         return [first]
@@ -131,91 +113,66 @@ def _coerce_action_steps(actions_raw: list[Any]) -> list[ActionStep]:
 
 
 # ----------------------------
-# Combined planner (one call) -> TurnPlan
+# Combined planner
 # ----------------------------
 
-def plan_turn(user_text: str, context: str = "") -> TurnPlan:
+def plan_turn(user_text: str, history: str = "", context: str = "") -> TurnPlan:
     """
-    Combined "turn planner" that replaces:
-      - parse_command()
-      - propose_memory_note()
-    with ONE model call that can propose both actions and memory work.
-    Nexus still gates + executes.
-    - Use the provided [Context] to resolve fuzzy app names (e.g., "code" -> "Visual Studio Code").
+    Decodes voice commands using LLM phonetic reasoning.
     """
     client = _get_client()
     model = os.getenv("NEXUS_PLAN_MODEL", "gpt-4o-mini")
 
+    # SMART PROMPT: No hardcoded lists. Just "Principles".
     system_prompt = """
-You are Nexus Turn Planner for a macOS assistant.
-you are created by Mustafa Asghari.
+You are Nexus, an intelligent operating system assistant.
+You are created by Mustafa Asghari.
 
-Return ONLY valid JSON. No markdown. No extra keys.
+**Your Input:** Raw transcription from a speech-to-text engine. It may contain phonetic errors (homophones) or misheard words.
 
-Your job: propose what Nexus should do this turn.
-Nexus (code) will validate/gate/execute. You NEVER execute anything.
+**Your Goal:**
+Infer the user's *true intent* by correcting phonetic errors based on the context of a desktop assistant.
 
-You may propose:
-1) memory_read:
-   - Use when the user asks to recall past info ("what did I do", "my goals", "my deadline", "my exam score", etc.)
-   - Format: { "query": "<string>", "limit": 5 }
+**Reasoning Rules (Do not hardcode, THINK):**
+1. **Phonetic Matching:** If the input sounds like a valid command, assume the valid command.
+   - Example Context: "Tell me about my plant" -> "Plant" makes no sense here. "Plan" makes perfect sense. -> Action: Read Plans.
+   - Example Context: "Ride a note" -> "Ride" is impossible. "Write" is a core feature. -> Action: Create Note.
+2. **Contextual History:** Use the [Chat History] to resolve pronouns like "it", "them", or "that".
 
+**Available Tools (The valid commands):**
+1) memory_read: Use for questions about past info, goals, or plans. { "query": "string", "limit": 5 }
+2) memory_write: Use for saving new info. { "should_store": bool, "confidence": float, "note": {...} }
+3) actions: list of { "intent": "...", "args": {...} }
 
-2) memory_write:
-   - Use when the user states important info to remember:
-     goals, deadlines, plans, commitments, constraints, preferences
-   - Format:
-     {
-       "should_store": boolean,
-       "confidence": number,
-       "note": {
-         "title": string,
-         "content": string,
-         "deadline": "YYYY-MM-DD" | null,
-         "plan": object | null,
-         "status": string | null,
-         "priority": integer | null,
-         "tags": array<string> | null
-       } | null
-     }
-   - If not important: should_store=false and note=null
-   - Never include secrets in note.content.
-   -you can also clear the memory the tool have been passed.
+**Supported Action Intents:**
+- OPEN_APP {"app_name": "..."}
+- CLOSE_APP {"app_name": "..."}
+- CLOSE_ALL_APPS {}
+- CREATE_NOTE {"content": "...", "folder": "..."}
+- SEARCH_WEB {"query": "..."}
+- EXIT {} (For quit/goodbye/stop)
 
-3) actions: a list of action steps (can be empty)
-   Supported intents:
-   - OPEN_APP  args {"app_name": "<Application Name>"}
-   - CLOSE_APP args {"app_name": "<Application Name>"}
-   - CLOSE_ALL_APPS args {}   (IMPORTANT: if included, it MUST be the ONLY action step)
-   - SEARCH_WEB: Search the internet for live information.
-     Args: "query": "the search query string"
-   - CREATE_NOTE: Create a new note in the Apple Notes app.
-     Args: "content": "<text of the note>", "folder": "<folder name>" (optional, defaults to Notes) 
-    
-Rules:
-- Do not output terminal commands.
-- Do not claim you executed anything.
-- If user combines requests (memory + open app), include both.
-- actions MUST always be a list (possibly empty).
-- memory_read and memory_write can be null if not needed.
-- Use the provided [Context] to resolve fuzzy app names (e.g., "code" -> "Visual Studio Code").
-
+Return ONLY valid JSON.
 Output schema exactly:
 {
-  "memory_read": { "query": "...", "limit": 10 } | null,
-  "memory_write": { "should_store": true/false, "confidence": 0-1, "note": {...} | null } | null,
-  "actions": [ { "intent": "...", "args": {...} }, ... ]
+  "memory_read": ... | null,
+  "memory_write": ... | null,
+  "actions": [...]
 }
-""".strip()
+"""
 
-   # Prepare the user message with context
-    user_content = user_text
+    # Combine History + Context + User Input
+    user_content = f"USER AUDIO TRANSCRIPT: {user_text}\n"
+    
+    if history:
+        user_content += f"\n[Chat History]\n{history}\n"
+        
     if context:
-        user_content += f"\n\n[Context]\n{context}"
+        user_content += f"\n[System Context (Running Apps)]\n{context}\n"
 
     resp = client.chat.completions.create(
         model=model,
-        temperature=0,
+        temperature=0, # Keep temp low for strict JSON, but the model will still do the reasoning
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
@@ -226,33 +183,30 @@ Output schema exactly:
     try:
         data: Dict[str, Any] = json.loads(content)
     except json.JSONDecodeError:
-        # safe fallback: do nothing
         return TurnPlan(memory_read=None, memory_write=None, actions=[])
 
     if not _validate_turn_plan_dict(data):
         return TurnPlan(memory_read=None, memory_write=None, actions=[])
 
-    # memory_read
+    # Parse memory_read
     mr = data.get("memory_read")
     memory_read: Optional[MemoryRead] = None
     if isinstance(mr, dict):
         q = str(mr.get("query", "")).strip()
         lim = int(mr.get("limit") or 5)
-        lim = max(1, min(20, lim))
         if q:
             memory_read = MemoryRead(query=q, limit=lim)
 
-    # memory_write
+    # Parse memory_write
     mw = data.get("memory_write")
     memory_write: Optional[MemoryWrite] = None
     if isinstance(mw, dict):
         should_store = bool(mw.get("should_store"))
         conf = float(mw.get("confidence") or 0.0)
-        conf = max(0.0, min(1.0, conf))
         note = mw.get("note") if should_store else None
-        memory_write = MemoryWrite(should_store=should_store, confidence=conf, note=note if isinstance(note, dict) else None)
+        memory_write = MemoryWrite(should_store=should_store, confidence=conf, note=note)
 
-    # actions
+    # Parse actions
     actions_raw = data.get("actions") or []
     actions = _coerce_action_steps(actions_raw if isinstance(actions_raw, list) else [])
 
