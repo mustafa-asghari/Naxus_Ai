@@ -8,7 +8,7 @@ from skills.wake_word import wait_for_wake_word
 import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-
+from openai import OpenAI
 from dotenv import load_dotenv
 from skills.voice import listen_to_user , speak_text
 
@@ -88,7 +88,41 @@ def expand_steps(actions: list[ActionStep]) -> list[ActionStep]:
 # -------------------------------------------------
 # MAIN LOOP
 # -------------------------------------------------
+def is_confirmation_positive(user_text: str) -> bool:
+    """
+    Uses AI to decide if the user said 'Yes' or 'No'.
+    Handles variations like 'Yeah', 'Sure', 'Go ahead', 'Do it'.
+    """
+    if not user_text: 
+        return False
 
+    print(f"Checking confirmation for: '{user_text}'")
+
+    # 1. Fast check for obvious words to save time
+    clean = user_text.lower().strip()
+    if clean in ["yes", "yeah", "yep", "sure", "ok", "okay", "do it", "confirm"]:
+        return True
+    if clean in ["no", "nah", "nope", "cancel", "stop", "don't"]:
+        return False
+
+    # 2. Smart check with OpenAI (for complex answers)
+    try:
+        client = OpenAI()
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini", # Fast model
+            messages=[
+                {"role": "system", "content": "Classify the user's response to a confirmation request. Output ONLY 'YES' or 'NO'."},
+                {"role": "user", "content": f"User said: '{user_text}'"}
+            ],
+            temperature=0,
+            max_tokens=5
+        )
+        decision = (resp.choices[0].message.content or "").strip().upper()
+        return "YES" in decision
+    except Exception as e:
+        print(f"AI Check failed: {e}")
+        return False
+    
 async def main() -> int:
     load_dotenv()
     log = configure_logging()
@@ -110,25 +144,37 @@ async def main() -> int:
     
     print("Nexus started. Listening... (Say 'quit' to exit)")
     
-    chat_history = []
-
     try:
         # --- OUTER LOOP: THE GUARD (Sleep Mode) ---
         while True:
-            # 1. Wait here silently until you say "Jarvis"
+            # 1. Wait here silently until you say the wake word ("Nexus" or "Jarvis")
             if not wait_for_wake_word():
                 continue 
 
             # --- INNER LOOP: THE CONVERSATION (Awake Mode) ---
             print("--- ENTERING CONVERSATION MODE ---")
             
+            # 1. LOAD HISTORY FROM DATABASE
+            hist_data = await mcp.call("pg_get_recent_history", {"session_id": session_id, "limit": 10})
+            chat_history = hist_data.get("history", [])
+            
+            # 2. DECIDE GREETING BASED ON CONTEXT
+            if chat_history:
+                last_msg = chat_history[-1]
+                print(f"[RESTORED MEMORY] Context: {last_msg[:50]}...")
+                # If we have history, say something contextual
+                speak_text("I'm back. As we were saying...")
+            else:
+                speak_text("I'm listening.")
+
             conversation_active = True
+            
             while conversation_active:
                 
-                # 2. Listen for command (No "Jarvis" needed here)
+                # 2. Listen for command (Instant, no wake word needed here)
                 raw = listen_to_user() 
                 
-                # If you stop talking (silence), just listen again
+                # If you stop talking or it hears silence/noise, just listen again
                 if not raw:
                     continue
 
@@ -182,7 +228,11 @@ async def main() -> int:
                     if conf >= WRITE_CONFIDENCE_AUTO:
                         allowed = True
                     elif conf >= WRITE_CONFIDENCE_ASK:
-                        allowed = ask_yes_no("Save this to memory? ")
+                        # ASK FOR CONFIRMATION (Voice)
+                        speak_text("Should I save that to memory?")
+                        conf_ans = listen_to_user()
+                        if conf_ans and "yes" in conf_ans.lower():
+                            allowed = True
 
                     if allowed:
                         res = await mcp.call("ch_insert_note", {
@@ -203,18 +253,16 @@ async def main() -> int:
                 # -------------------------------------------------
                 expanded_actions = expand_steps(plan.actions)
                 
-                # --- NEW: CHECK FOR EXIT ---
-                # This breaks the INNER loop, sending you back to the GUARD loop
+                # CHECK FOR EXIT / SLEEP COMMANDS
                 should_sleep = False
                 for step in expanded_actions:
                     if step.intent == Intent.EXIT:
                         print("Nexus: Going to sleep.")
-                        speak_text("Going to sleep, sir.")
+                        speak_text("Going to sleep.")
                         should_sleep = True
                         break
                 
                 if should_sleep:
-                    # Break the Inner Loop -> Go back to wait_for_wake_word()
                     conversation_active = False
                     break 
 
@@ -222,26 +270,37 @@ async def main() -> int:
                     cmd_obj = Command(raw=raw, plan="(turn_plan)", steps=expanded_actions)
                     safety = check_command(cmd_obj)
                     
+                    # DEFAULT: Don't run unless we prove it's safe
                     should_run = False
+
+                    # CASE 1: BLOCKED
                     if not safety.allowed:
                         msg = safety.prompt or "I cannot do that."
                         print(f"🛑 {msg}")
                         speak_text(msg)
                         tool_bundle["actions"].append({"intent": "BLOCKED", "ok": False, "message": msg})
                     
+                    # CASE 2: REQUIRES CONFIRMATION
                     elif safety.requires_confirmation:
-                        warning_msg = safety.prompt or "This action requires confirmation."
+                        warning_msg = safety.prompt or "This requires confirmation."
                         speak_text(warning_msg)
-                        # For voice, we might want to listen for 'yes' here, 
-                        # but for now we fallback to terminal input or assume user sees it
-                        if ask_yes_no(f"\n⚠️ {warning_msg} Proceed? (yes/no) "):
+                        print(f"⚠️ {warning_msg} Waiting for voice confirmation...")
+
+                        # Listen for your answer
+                        confirmation = listen_to_user()
+
+                        if is_confirmation_positive(confirmation):
                             should_run = True
+                            speak_text("Confirmed.")
                         else:
-                            print("Aborted.")
-                            speak_text("Okay, I won't do it.")
+                            print(f"Aborted. (User said: {confirmation})")
+                            speak_text("Okay, cancelled.")
+                    
+                    # CASE 3: SAFE (THE MISSING PIECE!)
                     else:
                         should_run = True
 
+                    # EXECUTE IF GREEN LIGHT
                     if should_run:
                         for step in expanded_actions:
                             result = router.dispatch_step(step)

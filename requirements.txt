@@ -10,3 +10,7 @@ pyaudio
 pvporcupine
 pvrecorder
 simpleaudio
+numpy
+packaging
+torch
+torchaudio<2.9

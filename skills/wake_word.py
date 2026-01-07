@@ -1,42 +1,73 @@
-import speech_recognition as sr
+import pvporcupine
+import pyaudio
+import struct
 import os
+import sys
+from pathlib import Path  # Added for file path handling
+from skills.voice import stop_speaking
+from dotenv import load_dotenv
+
+load_dotenv()
+
+PORCUPINE_ACCESS_KEY = os.getenv("PORCUPINE_ACCESS_KEY") 
 
 def wait_for_wake_word():
     """
-    Listens for 'Jarvis'.
-    Returns True if heard, False if silence/noise.
-    This function BLOCKS until sound is heard, saving CPU.
+    Listens for 'Nexus' using your custom .ppn file.
     """
-    r = sr.Recognizer()
-    r.dynamic_energy_threshold = True
-    
-    # 0 = MacBook Mic, 2 = External Mic (Change if needed)
-    MIC_INDEX = 0 
-    
-    with sr.Microphone(device_index=MIC_INDEX) as source:
-        print("\n[GUARD] Listening for 'Jarvis'...")
-        
-        # Adjust only slightly to keep loop fast
-        r.adjust_for_ambient_noise(source, duration=0.5)
+    # 1. Locate the nexus.ppn file dynamically
+    base_dir = Path(__file__).resolve().parent
+    keyword_path = base_dir / "nexus.ppn"
 
-        try:
-            # timeout=None means it waits FOREVER until it hears sound.
-            # phrase_time_limit=2 means it only listens to short bursts (like "Jarvis")
-            audio = r.listen(source, timeout=None, phrase_time_limit=2)
-            
-            text = r.recognize_google(audio).lower()
-            
-            if "jarvis" in text:
-                print("✅ WAKE WORD DETECTED")
-                # The 'Ding' sound
-                os.system('afplay /System/Library/Sounds/Hero.aiff')
+    try:
+        # Check if the file actually exists
+        if keyword_path.exists():
+            porcupine = pvporcupine.create(
+                access_key=PORCUPINE_ACCESS_KEY,
+                keyword_paths=[str(keyword_path)] # USE CUSTOM FILE
+            )
+            print(f"\n[GUARD] Listening for 'Nexus' (Custom Model)...")
+        else:
+            # Fallback if you haven't downloaded the file yet
+            print(f"\n[GUARD] 'nexus.ppn' not found in skills/ folder.")
+            print("[GUARD] Falling back to 'Computer' (Built-in).")
+            porcupine = pvporcupine.create(
+                access_key=PORCUPINE_ACCESS_KEY,
+                keywords=["computer"]
+            )
+
+    except Exception as e:
+        print(f"⚠️ Porcupine Error: {e}")
+        input("Press Enter to manually wake...")
+        return True
+
+    pa = pyaudio.PyAudio()
+    audio_stream = pa.open(
+        rate=porcupine.sample_rate,
+        channels=1,
+        format=pyaudio.paInt16,
+        input=True,
+        frames_per_buffer=porcupine.frame_length
+    )
+
+    try:
+        while True:
+            pcm = audio_stream.read(porcupine.frame_length, exception_on_overflow=False)
+            pcm = struct.unpack_from("h" * porcupine.frame_length, pcm)
+
+            keyword_index = porcupine.process(pcm)
+
+            if keyword_index >= 0:
+                print("✅ NEXUS DETECTED")
+                stop_speaking()
+                os.system('afplay /System/Library/Sounds/Hero.aiff') 
                 return True
-                
-        except sr.WaitTimeoutError:
-            pass # Just loop again
-        except sr.UnknownValueError:
-            pass # Heard noise, ignore
-        except sr.RequestError:
-            print("[GUARD] Internet connection failed.")
-            
-    return False
+
+    except KeyboardInterrupt:
+        return False
+    finally:
+        if audio_stream is not None:
+            audio_stream.close()
+        if pa is not None:
+            pa.terminate()
+        porcupine.delete()

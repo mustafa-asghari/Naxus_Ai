@@ -1,7 +1,8 @@
-import os, uuid, json
-from datetime import datetime, date ,UTC
+import os, uuid, json, sys ,time
+from datetime import datetime, date ,UTC    
 from typing import Any, Optional
 from openai import OpenAI
+
 
 import psycopg
 from psycopg.types.json import Jsonb
@@ -272,8 +273,75 @@ def ch_recent_notes(limit: int = 10) -> dict[str, Any]:
     items = [{"id": str(r[0]), "created_at": str(r[1]), "title": r[2], "content": r[3]} for r in res.result_rows]
     return {"count": len(items), "items": items}
     
+
+def wait_for_databases():
+    """
+     Loops until Postgres and ClickHouse are ready.
+     Uses sys.stderr.write to avoid breaking the MCP stdout protocol.
+    """
+    sys.stderr.write("MCP: Waiting for databases to spin up...\n")
+    
+    retries = 30  # Try for 60 seconds (30 * 2s)
+    for i in range(retries):
+        try:
+            # 1. Test Postgres
+            with pg_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1")
+            
+            # 2. Test ClickHouse
+            c = ch_client()
+            c.command("SELECT 1")
+
+            sys.stderr.write("MCP: Databases are UP and READY! Starting server.\n")
+            return True
+            
+        except Exception as e:
+            # Write to stderr. Do NOT use print().
+            sys.stderr.write(f"MCP: Database not ready yet ({i+1}/{retries})...\n")
+            time.sleep(2)
+            
+    sys.stderr.write("MCP: Critical Error - Databases never came online.\n")
+    return False
+@mcp.tool()
+def pg_get_recent_history(session_id: str = "default", limit: int = 10) -> dict[str, Any]:
+    """
+    Retrieves the last N messages to rebuild chat history.
+    """
+    sql = """
+      SELECT kind, payload 
+      FROM events 
+      WHERE session_id = %s AND kind IN ('user_msg', 'assistant_reply')
+      ORDER BY ts DESC 
+      LIMIT %s;
+    """
+    with pg_conn() as conn, conn.cursor() as cur:
+        cur.execute(sql, (session_id, limit))
+        rows = cur.fetchall()
+    
+    # Rows come back newest first (DESC), so we reverse them to chronological order
+    history = []
+    for kind, payload in reversed(rows):
+        text = payload.get("text", "")
+        if kind == "user_msg":
+            history.append(f"User: {text}")
+        else:
+            history.append(f"Nexus: {text}")
+            
+    return {"history": history}
+
 if __name__ == "__main__":
     # simplest local mode: stdio (Nexus spawns this server)
-    init_clickhouse_schema()
-    mcp.run(transport="stdio")
-                
+    
+    # --- NEW: WAIT FOR DATABASES BEFORE STARTING ---
+    # This prevents the "Connection Refused" crash on startup
+    if wait_for_databases():
+        try:
+            init_clickhouse_schema()
+        except Exception as e:
+            # Write to stderr, NOT print
+            sys.stderr.write(f"MCP: Schema init failed, but continuing: {e}\n")
+
+        mcp.run(transport="stdio")  
+    else:
+        sys.exit(1)

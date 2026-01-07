@@ -137,7 +137,9 @@ Infer the user's *true intent* by correcting phonetic errors based on the contex
 1. **Phonetic Matching:** If the input sounds like a valid command, assume the valid command.
    - Example Context: "Tell me about my plant" -> "Plant" makes no sense here. "Plan" makes perfect sense. -> Action: Read Plans.
    - Example Context: "Ride a note" -> "Ride" is impossible. "Write" is a core feature. -> Action: Create Note.
-2. **Contextual History:** Use the [Chat History] to resolve pronouns like "it", "them", or "that".
+
+1. **Resume Context:** If the user asks to "continue" or "go back", look at the [Chat History]. If the last Assistant message was interrupted or unfinished, the next action should be to finish that explanation.
+2. **Action Chaining:** If the user says "Open Discord and tell me about the movie", you must generate a JSON with specific actions AND a clear memory of the topic.
 
 **Available Tools (The valid commands):**
 1) memory_read: Use for questions about past info, goals, or plans. { "query": "string", "limit": 5 }
