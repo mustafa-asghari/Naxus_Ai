@@ -3,17 +3,27 @@ from __future__ import annotations
 from enum import Enum
 
 
-
 class Intent(Enum):
     UNKNOWN = "UNKNOWN"
 
-    # System actions I actually handle today
+    # App control
     OPEN_APP = "OPEN_APP"
     CLOSE_APP = "CLOSE_APP"
     CLOSE_ALL_APPS = "CLOSE_ALL_APPS"
-    SEARCH_WEB = "SEARCH_WEB"
-    # Future ideas I’m parking here for later
-    QUERY_ACTIVITY = "QUERY_ACTIVITY"
-    CREATE_NOTE = "CREATE_NOTE"
 
-    EXIT = "EXIT"
+    # Utilities
+    SEARCH_WEB = "SEARCH_WEB"
+    CREATE_NOTE = "CREATE_NOTE"
+    OPEN_URL = "OPEN_URL"
+    QUERY_ACTIVITY = "QUERY_ACTIVITY"
+
+    # Communication
+    SEND_MESSAGE = "SEND_MESSAGE"
+    TYPE_TEXT = "TYPE_TEXT"
+    READ_MESSAGES = "READ_MESSAGES"
+    READ_SCREEN = "READ_SCREEN"
+
+    # Nexus control
+    EXIT = "EXIT"                    # Go to sleep mode
+    STOP_NEXUS = "STOP_NEXUS"        # Terminate Nexus
+    RESTART_NEXUS = "RESTART_NEXUS"  # Restart Nexus

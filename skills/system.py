@@ -171,7 +171,6 @@ def close_app(step: ActionStep) -> Result:
 
     # Optional verify
     if _is_running(resolved):
-        # App may prompt “Do you want to save?” and still be running
         return Result(ok=False, message=f"Tried to quit {resolved}, but it still appears to be running (maybe waiting for save confirmation).")
 
     return Result(ok=True, message=f"Quit {resolved}.")

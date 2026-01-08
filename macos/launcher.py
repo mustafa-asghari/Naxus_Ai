@@ -8,7 +8,7 @@ import time
 
 class NexusApp(rumps.App):
     def __init__(self):
-        super(NexusApp, self).__init__("Nexus", title="🧠")
+        super(NexusApp, self).__init__("Nexus", title="🤖")
         self.process = None
         self.nexus_pid = None
         self.menu = ["Restart Nexus", "Quit Nexus"]

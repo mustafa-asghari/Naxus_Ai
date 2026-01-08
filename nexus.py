@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import subprocess
 import sys
 import asyncio
 import logging
@@ -23,18 +23,21 @@ from core.planner import plan_turn
 from core.narrator import narrate_turn
 
 # Skills
-from skills.system import open_app, close_app 
+from skills.system import open_app, close_app
 from macos.running_apps import get_running_apps
 from skills.note import create_note
 from skills.web_search import search_web
+from skills.browser import open_url
+from skills.discord import send_discord_message
+from skills.message import send_imessage, search_contacts, read_messages
+from skills.discord import read_active_window
+
 # MCP
 from data.MCP.mcp_client import MCPMemoryClient
 
 
-# -------------------------------------------------
-# Config / helpers
-# -------------------------------------------------
 
+IS_RUNNING = True
 WRITE_CONFIDENCE_AUTO = 0.65
 WRITE_CONFIDENCE_ASK = 0.60
 
@@ -85,44 +88,126 @@ def expand_steps(actions: list[ActionStep]) -> list[ActionStep]:
     return expanded
 
 
+def _resolve_contact_name(query: str) -> tuple[Optional[str], list[str], Optional[str]]:
+    """
+    Resolve a possibly-misheard contact string into a concrete contact name.
+    Returns (resolved_name_or_none, candidates, error).
+    """
+    q = (query or "").strip()
+    if not q:
+        return None, [], None
+    if q.lower() in {"me", "myself"}:
+        return "me", ["me"], None
+    # Allow direct handles (phone/email) without Contacts lookup
+    if re.fullmatch(r"[+\d][\d\s().-]{6,}", q) or re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", q):
+        return q, [q], None
+    # Try Contacts app lookup
+    candidates, err = search_contacts(q, limit=5)
+    if err:
+        return None, [], err
+    if len(candidates) == 1:
+        return candidates[0], candidates, None
+    return None, candidates, None
+
+
 # -------------------------------------------------
 # MAIN LOOP
 # -------------------------------------------------
 def is_confirmation_positive(user_text: str) -> bool:
     """
-    Uses AI to decide if the user said 'Yes' or 'No'.
-    Handles variations like 'Yeah', 'Sure', 'Go ahead', 'Do it'.
+    Determines if the user's response means YES or NO.
+    Uses fast keyword matching first, then AI for complex phrases.
     """
-    if not user_text: 
+    if not user_text:
         return False
 
-    print(f"Checking confirmation for: '{user_text}'")
-
-    # 1. Fast check for obvious words to save time
     clean = user_text.lower().strip()
-    if clean in ["yes", "yeah", "yep", "sure", "ok", "okay", "do it", "confirm"]:
+    print(f"Checking confirmation for: '{clean}'")
+
+    # Fast positive matches
+    positive_words = {
+        "yes", "yeah", "yep", "yup", "sure", "ok", "okay", "alright",
+        "do it", "confirm", "confirmed", "go ahead", "proceed", "affirmative",
+        "absolutely", "definitely", "of course", "for sure", "go for it",
+        "please", "please do", "yes please", "that's right", "correct",
+        "right", "uh huh", "mm hmm", "yea", "ya", "yas"
+    }
+
+    # Fast negative matches
+    negative_words = {
+        "no", "nah", "nope", "cancel", "stop", "don't", "abort",
+        "never", "negative", "no way", "not now", "wait", "hold on",
+        "actually no", "no thanks", "nope nope"
+    }
+
+    # Check exact matches first
+    if clean in positive_words:
+        print("→ Fast match: POSITIVE")
         return True
-    if clean in ["no", "nah", "nope", "cancel", "stop", "don't"]:
+    if clean in negative_words:
+        print("→ Fast match: NEGATIVE")
         return False
 
-    # 2. Smart check with OpenAI (for complex answers)
+    # Check if any positive phrase is contained
+    for phrase in positive_words:
+        if phrase in clean and len(phrase) > 2:
+            print(f"→ Contains positive phrase: '{phrase}'")
+            return True
+
+    # Check if any negative phrase is contained
+    for phrase in negative_words:
+        if phrase in clean and len(phrase) > 2:
+            print(f"→ Contains negative phrase: '{phrase}'")
+            return False
+
+    # AI fallback for complex responses like "I'm pretty sure", "I guess so"
     try:
         client = OpenAI()
         resp = client.chat.completions.create(
-            model="gpt-4o-mini", # Fast model
+            model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Classify the user's response to a confirmation request. Output ONLY 'YES' or 'NO'."},
-                {"role": "user", "content": f"User said: '{user_text}'"}
+                {
+                    "role": "system",
+                    "content": """You are a YES/NO classifier. The user was asked to confirm an action.
+Determine if their response means YES (proceed) or NO (cancel).
+
+Examples of YES: "I'm sure", "I'm pretty sure", "go for it", "I guess so", "why not", "let's do it"
+Examples of NO: "wait", "hold on", "not yet", "I changed my mind", "actually no"
+
+Output ONLY the word YES or NO."""
+                },
+                {"role": "user", "content": f"User response: '{user_text}'"}
             ],
             temperature=0,
-            max_tokens=5
+            max_tokens=3
         )
         decision = (resp.choices[0].message.content or "").strip().upper()
-        return "YES" in decision
+        result = "YES" in decision
+        print(f"→ AI decision: {decision} → {'POSITIVE' if result else 'NEGATIVE'}")
+        return result
     except Exception as e:
         print(f"AI Check failed: {e}")
+        # Default to NO for safety if AI fails
         return False
     
+def stop_nexus_program():
+    """
+    Stops the python script. 
+    """
+    print("Terminating Nexus Program...")
+    speak_text("Shutting down. Goodbye.")
+    # This kills the current python process
+    os._exit(0)
+
+def restart_nexus_program():
+    """
+    Restarts the current python script.
+    """
+    print("Restarting Nexus Program...")
+    speak_text("Restarting myself now.")
+    # This command replaces the current process with a new instance of itself
+    os.execv(sys.executable, ['python'] + sys.argv)
+
 async def main() -> int:
     load_dotenv()
     log = configure_logging()
@@ -139,6 +224,14 @@ async def main() -> int:
     router.register_action(Intent.CLOSE_APP, close_app)
     router.register_action(Intent.SEARCH_WEB, search_web)
     router.register_action(Intent.CREATE_NOTE, create_note)
+    router.register_action(Intent.OPEN_URL, open_url)
+    router.register_action(Intent.SEND_MESSAGE, send_imessage)
+    router.register_action(Intent.TYPE_TEXT, send_discord_message)
+    router.register_action(Intent.READ_SCREEN, read_active_window)
+    router.register_action(Intent.READ_MESSAGES, read_messages)
+        
+        
+
 
     session_id = os.getenv("NEXUS_SESSION_ID", "default")
     
@@ -165,17 +258,24 @@ async def main() -> int:
                 # If we have history, say something contextual
                 speak_text("I'm back. As we were saying...")
             else:
-                speak_text("I'm listening.")
+                speak_text("I'm listening whats on your mind.")
 
             conversation_active = True
             
             while conversation_active:
                 
-                # 2. Listen for command (Instant, no wake word needed here)
+                # 2. Listen for command
                 raw = listen_to_user() 
                 
-                # If you stop talking or it hears silence/noise, just listen again
-                if not raw:
+                # --- FIX 1: STRICT INPUT FILTER ---
+                # If raw is None, empty, or just whitespace -> Skip
+                if not raw or not raw.strip():
+                    continue
+
+                # If the input is too short (less than 4 letters), it's likely noise -> Skip
+                # This stops "ah", "um", "ok" from triggering complex actions
+                if len(raw.strip()) < 4:
+                    print(f"Ignored noise: '{raw}'")
                     continue
 
                 # -------------------------------------------------
@@ -252,8 +352,66 @@ async def main() -> int:
                 # ACTIONS (EXECUTION)
                 # -------------------------------------------------
                 expanded_actions = expand_steps(plan.actions)
+
+                # -------------------------------------------------
+                # CONTACT RESOLUTION (for iMessage actions)
+                # -------------------------------------------------
+                # If the model outputs a fuzzy recipient like "this guy" / "mi" / partial name,
+                # resolve it against Contacts and (if ambiguous) ask the user to choose.
+                contact_resolution_block: Optional[str] = None
+                for idx, step in enumerate(expanded_actions):
+                    if step.intent in {Intent.SEND_MESSAGE, Intent.READ_MESSAGES}:
+                        key = "recipient" if step.intent == Intent.SEND_MESSAGE else "contact"
+                        raw_target = str((step.args or {}).get(key) or "")
+                        if not raw_target.strip():
+                            continue
+
+                        resolved, candidates, err = _resolve_contact_name(raw_target)
+                        if err:
+                            contact_resolution_block = (
+                                "I couldn't access your Contacts. Please allow Nexus to access Contacts in "
+                                "System Settings → Privacy & Security → Contacts (and Automation), then try again."
+                            )
+                            break
+                        if resolved:
+                            expanded_actions[idx] = ActionStep(step.intent, {**(step.args or {}), key: resolved})
+                            continue
+
+                        # If we found multiple candidates, ask the user to pick one
+                        if len(candidates) > 1:
+                            options = ", ".join(candidates[:4])
+                            speak_text(f"I found multiple contacts: {options}. Who did you mean?")
+                            choice = listen_to_user() or ""
+                            # try number selection
+                            m = re.search(r"\d+", choice)
+                            picked = None
+                            if m:
+                                n = int(m.group(0))
+                                if 1 <= n <= len(candidates):
+                                    picked = candidates[n - 1]
+                            else:
+                                # try text contains
+                                for c in candidates:
+                                    if c.lower() in choice.lower():
+                                        picked = c
+                                        break
+                            if picked:
+                                expanded_actions[idx] = ActionStep(step.intent, {**(step.args or {}), key: picked})
+                            else:
+                                contact_resolution_block = "Okay, cancelled."
+                                expanded_actions.clear()
+                                break
+                        else:
+                            # No matches at all. Don't send to arbitrary strings like "Spotlight".
+                            # Ask the user to clarify a real contact (or a phone/email).
+                            contact_resolution_block = f"I couldn't find a contact named {raw_target}."
+                            expanded_actions = []
+                            break
+
+                if contact_resolution_block:
+                    tool_bundle["actions"].append({"intent": "BLOCKED", "ok": False, "message": contact_resolution_block})
                 
-                # CHECK FOR EXIT / SLEEP COMMANDS
+                # CHECK FOR EXIT / SLEE P COMMANDS
                 should_sleep = False
                 for step in expanded_actions:
                     if step.intent == Intent.EXIT:
@@ -269,7 +427,7 @@ async def main() -> int:
                 if expanded_actions:
                     cmd_obj = Command(raw=raw, plan="(turn_plan)", steps=expanded_actions)
                     safety = check_command(cmd_obj)
-                    
+
                     # DEFAULT: Don't run unless we prove it's safe
                     should_run = False
 
@@ -303,12 +461,19 @@ async def main() -> int:
                     # EXECUTE IF GREEN LIGHT
                     if should_run:
                         for step in expanded_actions:
-                            result = router.dispatch_step(step)
-                            tool_bundle["actions"].append({
-                                "intent": step.intent.value,
-                                "ok": result.ok,
-                                "message": result.message,
-                            })
+                            # Handle Nexus control separately (they don't return)
+                            if step.intent == Intent.STOP_NEXUS:
+                                stop_nexus_program()
+                            elif step.intent == Intent.RESTART_NEXUS:
+                                restart_nexus_program()
+                            else:
+                                # All other actions go through the router
+                                result = router.dispatch_step(step)
+                                tool_bundle["actions"].append({
+                                    "intent": step.intent.value,
+                                    "ok": result.ok,
+                                    "message": result.message,
+                                })
 
                 # -------------------------------------------------
                 # NARRATE & SPEAK

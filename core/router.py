@@ -14,6 +14,7 @@ ChatHandler = Callable[[Command], Result]
 class Router:
     def __init__(self) -> None:
         self._action_routes: Dict[Intent, SkillHandler] = {}
+        
 
     def register_action(self, intent: Intent, handler: SkillHandler) -> None:
         self._action_routes[intent] = handler       
