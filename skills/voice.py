@@ -1,35 +1,35 @@
 """
-Voice Module - Whisper STT + Dynamic Interrupt Detection
+Voice Module - Local faster-whisper STT + Dynamic Interrupt Detection
 
 Features:
-- Whisper for fast local speech-to-text (no network latency)
-- LLM-based dynamic interrupt detection (understands any interrupt phrase)
+- faster-whisper for fast LOCAL speech-to-text (no network latency, no API cost)
+- Uses large-v3 model for best accuracy
 - VAD-based speech detection during TTS
 - Pre-loaded models for faster response
 """
 from __future__ import annotations
 
 import os
-import io
-import wave
-import tempfile
 import subprocess
 import threading
+import time
 from typing import Optional, Tuple
-from functools import lru_cache
 
-import torch
 import numpy as np
 import pyaudio
-import whisper
+import torch
+from faster_whisper import WhisperModel
 from openai import OpenAI
 
 # ═════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Whisper model: tiny (fastest), base (fast), small (accurate)
-WHISPER_MODEL = os.getenv("NEXUS_WHISPER_MODEL", "base")
+# Whisper model: tiny, base, small, medium, large-v3
+# large-v3 is most accurate. On Apple Silicon, use compute_type="int8" for speed
+WHISPER_MODEL = os.getenv("NEXUS_WHISPER_MODEL", "large-v3")
+WHISPER_DEVICE = os.getenv("NEXUS_WHISPER_DEVICE", "cpu")  # cpu or cuda
+WHISPER_COMPUTE = os.getenv("NEXUS_WHISPER_COMPUTE", "int8")  # int8, float16, float32
 
 # Audio settings
 SAMPLE_RATE = 16000
@@ -47,7 +47,7 @@ VOLUME_THRESHOLD_SPEECH = 500      # Lower for recording
 
 _current_speech_process: Optional[subprocess.Popen] = None
 _vad_model = None
-_whisper_model = None
+_whisper_model: Optional[WhisperModel] = None
 _pa_instance: Optional[pyaudio.PyAudio] = None
 _interrupt_flag = threading.Event()
 _openai_client: Optional[OpenAI] = None
@@ -71,11 +71,16 @@ def init_voice() -> None:
 
 
 def _init_whisper() -> None:
-    """Load Whisper model (once)."""
+    """Load faster-whisper model (once)."""
     global _whisper_model
     if _whisper_model is None:
-        print(f"[NEXUS] Loading Whisper model ({WHISPER_MODEL})...")
-        _whisper_model = whisper.load_model(WHISPER_MODEL)
+        print(f"[NEXUS] Loading faster-whisper model ({WHISPER_MODEL})...")
+        print("[NEXUS] First run will download the model (~1.5GB for large-v3)")
+        _whisper_model = WhisperModel(
+            WHISPER_MODEL,
+            device=WHISPER_DEVICE,
+            compute_type=WHISPER_COMPUTE
+        )
         print("[NEXUS] Whisper loaded.")
 
 
@@ -364,11 +369,12 @@ def _record_audio(duration: float = 8.0, silence_threshold: int = 500,
 
 def listen_to_user(timeout: int = 8) -> Optional[str]:
     """
-    Listen and transcribe using OpenAI Whisper API (faster + more accurate than local).
+    Listen and transcribe using local faster-whisper (no network, no API cost).
     """
-    import tempfile
-    import wave
-    import time
+    global _whisper_model
+    
+    if _whisper_model is None:
+        _init_whisper()
     
     stop_speaking()
     time.sleep(0.5)  # Brief pause to let audio settle after speaking
@@ -382,45 +388,27 @@ def listen_to_user(timeout: int = 8) -> Optional[str]:
     print("[NEXUS] Transcribing...")
     
     try:
-        # Save audio to temp file (OpenAI API needs a file)
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            temp_path = f.name
-            
-        # Write WAV file
-        audio_int16 = (audio * 32768).astype(np.int16)
-        with wave.open(temp_path, 'wb') as wf:
-            wf.setnchannels(CHANNELS)
-            wf.setsampwidth(2)  # 16-bit
-            wf.setframerate(SAMPLE_RATE)
-            wf.writeframes(audio_int16.tobytes())
-        
-        # Call OpenAI Whisper API with context prompt for better accuracy
-        client = _get_openai()
-        
         # Prompt helps Whisper recognize domain-specific vocabulary
-        whisper_prompt = (
+        initial_prompt = (
             "Nexus voice commands: open, close, quit, launch, "
             "shut yourself down, restart yourself, terminate yourself, "
             "send message, read messages, create note, set reminder, "
-            "Chrome, Safari, Discord, Notes, VSCode, Terminal, Spotify, "
-            "calendar, reminder, confirm, cancel, yes, no"
+            "Chrome, Safari, Discord, Notes, VSCode, Visual Studio Code, "
+            "Terminal, Spotify, calendar, reminder, confirm, cancel, yes, no"
         )
         
-        with open(temp_path, "rb") as audio_file:
-            transcript = client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file,
-                language="en",
-                prompt=whisper_prompt,
-            )
+        # Transcribe with faster-whisper (local, fast)
+        segments, info = _whisper_model.transcribe(
+            audio,
+            language="en",
+            initial_prompt=initial_prompt,
+            beam_size=5,
+            vad_filter=True,  # Filter out non-speech
+        )
         
-        # Clean up temp file
-        try:
-            os.unlink(temp_path)
-        except Exception:
-            pass
+        # Collect all segments
+        text = " ".join(segment.text for segment in segments).strip()
         
-        text = transcript.text.strip()
         if text:
             print(f"[NEXUS] Heard: {text}")
             return text

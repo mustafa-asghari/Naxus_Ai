@@ -198,11 +198,14 @@ COMPLETE SKILL REFERENCE
 │ OPEN_APP {"app_name": "..."}                                               │
 │   Triggers: "open X", "launch X", "start X", "run X", just "X" alone       │
 │   Examples: "open Chrome", "launch Spotify", "Discord", "start VSCode"     │
+│   App Aliases: "vs code"/"vscode"/"code" = "Visual Studio Code"            │
+│                "chrome" = "Google Chrome", "notes" = "Notes"               │
 │   Multi-app: if the user says multiple apps, output ONE OPEN_APP per app   │
 │                                                                             │
 │ CLOSE_APP {"app_name": "..."}                                              │
 │   Triggers: "close X", "quit X", "exit X", "kill X"                        │
-│   Examples: "close Safari", "quit Slack", "exit Mail"                      │
+│   Examples: "close Safari", "quit Slack", "close vs code", "exit Notes"    │
+│   App Aliases: Same as OPEN_APP - use the FULL app name in the output      │
 │   Multi-app: if the user says multiple apps, output ONE CLOSE_APP per app  │
 │                                                                             │
 │ CLOSE_ALL_APPS {}                                                           │
@@ -328,8 +331,15 @@ OUTPUT FORMAT
 Return ONLY valid JSON. No markdown. No explanation. No extra text.
 """
 
-    # Combine History + Context + User Input
-    user_content = f"USER AUDIO TRANSCRIPT: {user_text}\n"
+    # Combine History + Context + User Input with current date
+    from datetime import datetime
+    now = datetime.now()
+    date_str = now.strftime("%Y-%m-%d")  # e.g., 2026-01-10
+    time_str = now.strftime("%H:%M")      # e.g., 18:45
+    day_name = now.strftime("%A")          # e.g., Friday
+    
+    user_content = f"CURRENT DATE: {date_str} ({day_name}) TIME: {time_str}\n"
+    user_content += f"USER AUDIO TRANSCRIPT: {user_text}\n"
     
     if history:
         user_content += f"\n[Chat History]\n{history}\n"
