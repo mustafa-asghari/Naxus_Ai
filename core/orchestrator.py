@@ -255,7 +255,11 @@ def expand_steps(actions: list[ActionStep]) -> list[ActionStep]:
     expanded: list[ActionStep] = []
     for step in actions:
         if step.intent == Intent.CLOSE_ALL_APPS:
-            for app in get_running_apps():
+            apps = get_running_apps()
+            print(f"[CLOSE_ALL] Found {len(apps)} apps to close: {apps}")
+            if not apps:
+                print("[CLOSE_ALL] No apps found to close (get_running_apps returned empty)")
+            for app in apps:
                 expanded.append(ActionStep(Intent.CLOSE_APP, {"app_name": app}))
         else:
             expanded.append(step)
