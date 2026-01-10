@@ -45,6 +45,26 @@ def get_running_apps() -> List[str]:
     return filtered
 
 
+def get_frontmost_app() -> str | None:
+    """
+    Return the name of the frontmost app (best-effort).
+    """
+    script = 'tell application "System Events" to get name of first application process whose frontmost is true'
+    completed = subprocess.run(
+        ["osascript", "-e", script],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    name = (completed.stdout or "").strip()
+    if not name:
+        return None
+    return name
+
+
 def applescript_quote(s: str) -> str:
     """
     Escape a string so it survives inside AppleScript double quotes.

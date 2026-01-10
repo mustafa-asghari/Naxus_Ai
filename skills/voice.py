@@ -1,34 +1,194 @@
+"""
+Voice Module - Whisper STT + Dynamic Interrupt Detection
+
+Features:
+- Whisper for fast local speech-to-text (no network latency)
+- LLM-based dynamic interrupt detection (understands any interrupt phrase)
+- VAD-based speech detection during TTS
+- Pre-loaded models for faster response
+"""
+from __future__ import annotations
+
+import os
+import io
+import wave
+import tempfile
+import subprocess
+import threading
+from typing import Optional, Tuple
+from functools import lru_cache
+
 import torch
 import numpy as np
 import pyaudio
-import subprocess
+import whisper
+from openai import OpenAI
 
+# ═════════════════════════════════════════════════════════════════════════════
+# CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
 
-# --- GLOBAL VARIABLES ---
-_current_speech_process = None
+# Whisper model: tiny (fastest), base (fast), small (accurate)
+WHISPER_MODEL = os.getenv("NEXUS_WHISPER_MODEL", "base")
+
+# Audio settings
+SAMPLE_RATE = 16000
+CHANNELS = 1
+CHUNK_SIZE = 512
+
+# Volume threshold for interrupt detection
+# Higher = less sensitive (won't trigger on speaker output)
+VOLUME_THRESHOLD_INTERRUPT = 2500  # High to avoid self-trigger
+VOLUME_THRESHOLD_SPEECH = 500      # Lower for recording
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# GLOBAL STATE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_current_speech_process: Optional[subprocess.Popen] = None
 _vad_model = None
-_utils = None
+_whisper_model = None
+_pa_instance: Optional[pyaudio.PyAudio] = None
+_interrupt_flag = threading.Event()
+_openai_client: Optional[OpenAI] = None
 
-def init_vad():
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# INITIALIZATION (Call once at startup)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def init_voice() -> None:
     """
-    Downloads/Loads the Silero VAD model (High accuracy speech detection).
-    Run this once at startup.
+    Initialize all voice components at startup.
+    Pre-loads Whisper and VAD models for faster response.
     """
-    global _vad_model, _utils
+    print("[NEXUS] Initializing voice system...")
+    _init_whisper()
+    _init_vad()
+    _get_pyaudio()
+    _get_openai()
+    print("[NEXUS] Voice system ready.")
+
+
+def _init_whisper() -> None:
+    """Load Whisper model (once)."""
+    global _whisper_model
+    if _whisper_model is None:
+        print(f"[NEXUS] Loading Whisper model ({WHISPER_MODEL})...")
+        _whisper_model = whisper.load_model(WHISPER_MODEL)
+        print("[NEXUS] Whisper loaded.")
+
+
+def _init_vad() -> None:
+    """Load Silero VAD model (once)."""
+    global _vad_model
     if _vad_model is None:
-        print("[NEXUS] Loading VAD Neural Network...")
-        # Load Silero VAD from TorchHub (downloads automatically)
-        _vad_model, _utils = torch.hub.load(
+        print("[NEXUS] Loading VAD...")
+        _vad_model, _ = torch.hub.load(
             repo_or_dir='snakers4/silero-vad',
             model='silero_vad',
             force_reload=False,
             onnx=False,
             trust_repo=True
         )
-        print("[NEXUS] VAD Loaded.")
+        print("[NEXUS] VAD loaded.")
 
-def stop_speaking():
-    """Kills the current 'say' process immediately."""
+
+def _get_pyaudio() -> pyaudio.PyAudio:
+    """Get or create PyAudio instance (reused for speed)."""
+    global _pa_instance
+    if _pa_instance is None:
+        _pa_instance = pyaudio.PyAudio()
+    return _pa_instance
+
+
+def _get_openai() -> OpenAI:
+    """Get OpenAI client for LLM interrupt classification."""
+    global _openai_client
+    if _openai_client is None:
+        _openai_client = OpenAI()
+    return _openai_client
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# INTERRUPT SYSTEM - Dynamic LLM-Based Detection
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def set_interrupt() -> None:
+    """Signal that an interrupt was requested."""
+    _interrupt_flag.set()
+
+
+def clear_interrupt() -> None:
+    """Clear the interrupt flag."""
+    _interrupt_flag.clear()
+
+
+def is_interrupted() -> bool:
+    """Check if an interrupt was requested."""
+    return _interrupt_flag.is_set()
+
+
+def classify_interrupt(text: str) -> Tuple[bool, str]:
+    """
+    Fast local classification of interrupt commands.
+    Uses keyword matching for speed (no LLM latency).
+    
+    Returns (is_interrupt: bool, intent: str)
+    """
+    if not text or len(text.strip()) < 2:
+        return False, "none"
+    
+    lower = text.lower().strip()
+    
+    # Stop intents
+    stop_patterns = [
+        "stop", "quit", "abort", "halt", "enough", "shut up", 
+        "be quiet", "silence", "end", "terminate", "cease"
+    ]
+    for p in stop_patterns:
+        if p in lower:
+            return True, "stop"
+    
+    # Skip intents
+    skip_patterns = ["skip", "next", "move on", "pass", "nevermind", "never mind"]
+    for p in skip_patterns:
+        if p in lower:
+            return True, "skip"
+    
+    # Cancel intents
+    cancel_patterns = ["cancel", "forget it", "don't", "no don't"]
+    for p in cancel_patterns:
+        if p in lower:
+            return True, "cancel"
+    
+    # Wait intents
+    wait_patterns = ["wait", "hold on", "one moment", "pause", "hold"]
+    for p in wait_patterns:
+        if p in lower:
+            return True, "wait"
+    
+    # Continue intents (not interrupts, but good to know)
+    continue_patterns = ["continue", "go on", "keep going", "yes", "okay", "proceed"]
+    for p in continue_patterns:
+        if p in lower:
+            return False, "continue"
+    
+    return False, "none"
+
+
+def check_interrupt_word(text: str) -> bool:
+    """Quick check for interrupt commands (uses LLM)."""
+    is_interrupt, _ = classify_interrupt(text)
+    return is_interrupt
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SPEECH OUTPUT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def stop_speaking() -> None:
+    """Kill the current 'say' process immediately."""
     global _current_speech_process
     if _current_speech_process:
         try:
@@ -39,91 +199,276 @@ def stop_speaking():
         _current_speech_process = None
 
 
-
-def speak_text(text: str):
+def speak_text(text: str, allow_interrupt: bool = True) -> bool:
     """
-    Speaks text and allows interruption ONLY if the user speaks LOUDLY.
-    Uses Volume Gating (via Numpy) + VAD.
+    Speak text with optional voice interrupt detection.
+    Returns True if completed, False if interrupted.
     """
-    global _current_speech_process, _vad_model, _utils
+    global _current_speech_process, _vad_model
     
     if _vad_model is None:
-        init_vad()
+        _init_vad()
 
     stop_speaking()
+    clear_interrupt()
+    
     print(f"[NEXUS] Speaking: {text[:50]}...")
 
     _current_speech_process = subprocess.Popen(
-        ["say", "-v", "Evan", "-r", "190", text],
+        ["say", "-v", "Evan", "-r", "210", text],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
 
-    SAMPLE_RATE = 16000
-    FRAME_SIZE = 512 
+    if not allow_interrupt:
+        _current_speech_process.wait()
+        return True
+
+    # Monitor for voice interrupt - use high threshold to avoid hearing speaker
+    CONFIDENCE_THRESHOLD = 0.7
     
-    pa = pyaudio.PyAudio()
+    pa = _get_pyaudio()
     stream = pa.open(
         format=pyaudio.paInt16,
-        channels=1,
+        channels=CHANNELS,
         rate=SAMPLE_RATE,
         input=True,
-        frames_per_buffer=FRAME_SIZE
+        frames_per_buffer=CHUNK_SIZE
     )
 
-    # --- SETTINGS ---
-    # Threshold for Volume (Amplitude).
-    # 500 = Quiet room / Whisper
-    # 1000 = Normal speech
-    # 3000 = Loud speech
-    VOLUME_THRESHOLD = 1000 
-    CONFIDENCE_THRESHOLD = 0.6
-
+    interrupted = False
     try:
         while _current_speech_process.poll() is None:
-            audio_chunk = stream.read(FRAME_SIZE, exception_on_overflow=False)
-            
-            # Convert to Numpy Array
-            audio_int16 = np.frombuffer(audio_chunk, np.int16)
-
-            # 1. CALCULATE VOLUME (RMS) MANUALLY
-            # Square the samples, take the mean, then the square root.
-            rms_vol = np.sqrt(np.mean(audio_int16**2))
-
-            # 2. VOLUME GATE
-            if rms_vol > VOLUME_THRESHOLD:
+            if is_interrupted():
+                interrupted = True
+                break
                 
-                # Normalize for AI Model
+            audio_chunk = stream.read(CHUNK_SIZE, exception_on_overflow=False)
+            audio_int16 = np.frombuffer(audio_chunk, np.int16)
+            if len(audio_int16) == 0:
+                continue
+            mean_sq = np.mean(audio_int16.astype(np.float64)**2)
+            rms_vol = np.sqrt(max(0, mean_sq))
+
+            if rms_vol > VOLUME_THRESHOLD_INTERRUPT:
                 audio_float32 = audio_int16.astype(np.float32) / 32768.0
                 tensor = torch.from_numpy(audio_float32)
-                
-                # Check VAD
                 speech_prob = _vad_model(tensor, SAMPLE_RATE).item()
                 
                 if speech_prob > CONFIDENCE_THRESHOLD:
-                    print(f"\n[INTERRUPT] Loud Speech (Vol: {int(rms_vol)}, Prob: {speech_prob:.2f}). Stopping.")
+                    print(f"\n[INTERRUPT] Speech detected (Vol: {int(rms_vol)}, Prob: {speech_prob:.2f})")
                     stop_speaking()
+                    interrupted = True
                     break
 
     except Exception as e:
-        print(f"VAD Error: {e}")
+        print(f"[NEXUS] VAD Error: {e}")
     finally:
         stream.close()
-        pa.terminate()
 
-# --- KEEP YOUR OLD LISTEN FUNCTION ---
-import speech_recognition as sr
-def listen_to_user():
-    """Standard listening logic"""
-    r = sr.Recognizer()
-    r.pause_threshold = 1.2
-    r.dynamic_energy_threshold = True
-    stop_speaking() # Ensure silence
+    return not interrupted
+
+
+def speak_quick(text: str) -> None:
+    """Quick speak without interrupt monitoring (for confirmations)."""
+    stop_speaking()
+    subprocess.run(
+        ["say", "-v", "Evan", "-r", "230", text],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SPEECH INPUT - Whisper (Fast Local Recognition)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _record_audio(duration: float = 8.0, silence_threshold: int = 500, 
+                  silence_duration: float = 1.5) -> Optional[np.ndarray]:
+    """
+    Record audio with automatic silence detection.
+    Returns numpy array of audio samples.
+    """
+    pa = _get_pyaudio()
     
-    with sr.Microphone(device_index=0) as source:
-        print("\n[NEXUS] Listening...")
+    # Find microphone device - use default input device
+    try:
+        default_device = pa.get_default_input_device_info()
+        device_index = default_device['index']
+    except Exception:
+        device_index = 0  # Fallback to device 0
+    
+    stream = pa.open(
+        format=pyaudio.paInt16,
+        channels=CHANNELS,
+        rate=SAMPLE_RATE,
+        input=True,
+        input_device_index=device_index,
+        frames_per_buffer=CHUNK_SIZE
+    )
+    
+    frames = []
+    silent_chunks = 0
+    max_silent_chunks = int(silence_duration * SAMPLE_RATE / CHUNK_SIZE)
+    max_chunks = int(duration * SAMPLE_RATE / CHUNK_SIZE)
+    has_speech = False
+    
+    try:
+        for _ in range(max_chunks):
+            try:
+                data = stream.read(CHUNK_SIZE, exception_on_overflow=False)
+            except Exception:
+                continue
+                
+            if not data or len(data) == 0:
+                continue
+                
+            frames.append(data)
+            
+            # Check volume - handle potential empty/zero data
+            audio_int16 = np.frombuffer(data, np.int16)
+            if len(audio_int16) == 0:
+                continue
+            
+            # Safe RMS calculation
+            mean_sq = np.mean(audio_int16.astype(np.float64)**2)
+            rms = np.sqrt(max(0, mean_sq))  # Ensure non-negative
+            
+            if rms > silence_threshold:
+                has_speech = True
+                silent_chunks = 0
+            else:
+                silent_chunks += 1
+            
+            # Stop after silence following speech
+            if has_speech and silent_chunks > max_silent_chunks:
+                break
+                
+    except Exception as e:
+        print(f"[NEXUS] Recording error: {e}")
+    finally:
         try:
-            audio = r.listen(source, timeout=8)
-            print("[NEXUS] Processing...")
-            return r.recognize_google(audio)
+            stream.close()
         except Exception:
-            return None
+            pass
+    
+    if not frames:
+        return None
+    
+    # Convert to numpy array
+    audio_data = b''.join(frames)
+    if len(audio_data) == 0:
+        return None
+        
+    audio_np = np.frombuffer(audio_data, np.int16).astype(np.float32) / 32768.0
+    return audio_np
+
+
+def listen_to_user(timeout: int = 8) -> Optional[str]:
+    """
+    Listen and transcribe using OpenAI Whisper API (faster + more accurate than local).
+    """
+    import tempfile
+    import wave
+    import time
+    
+    stop_speaking()
+    time.sleep(0.5)  # Brief pause to let audio settle after speaking
+    print("\n[NEXUS] Listening...")
+    
+    # Record audio
+    audio = _record_audio(duration=float(timeout))
+    if audio is None or len(audio) == 0:
+        return None
+    
+    print("[NEXUS] Transcribing...")
+    
+    try:
+        # Save audio to temp file (OpenAI API needs a file)
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            temp_path = f.name
+            
+        # Write WAV file
+        audio_int16 = (audio * 32768).astype(np.int16)
+        with wave.open(temp_path, 'wb') as wf:
+            wf.setnchannels(CHANNELS)
+            wf.setsampwidth(2)  # 16-bit
+            wf.setframerate(SAMPLE_RATE)
+            wf.writeframes(audio_int16.tobytes())
+        
+        # Call OpenAI Whisper API with context prompt for better accuracy
+        client = _get_openai()
+        
+        # Prompt helps Whisper recognize domain-specific vocabulary
+        whisper_prompt = (
+            "Nexus voice commands: open, close, quit, launch, "
+            "shut yourself down, restart yourself, terminate yourself, "
+            "send message, read messages, create note, set reminder, "
+            "Chrome, Safari, Discord, Notes, VSCode, Terminal, Spotify, "
+            "calendar, reminder, confirm, cancel, yes, no"
+        )
+        
+        with open(temp_path, "rb") as audio_file:
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+                language="en",
+                prompt=whisper_prompt,
+            )
+        
+        # Clean up temp file
+        try:
+            os.unlink(temp_path)
+        except Exception:
+            pass
+        
+        text = transcript.text.strip()
+        if text:
+            print(f"[NEXUS] Heard: {text}")
+            return text
+        return None
+        
+    except Exception as e:
+        print(f"[NEXUS] Transcription error: {e}")
+        return None
+
+
+def quick_listen(timeout: float = 2.0) -> Optional[str]:
+    """
+    Quick listen for interrupt commands.
+    Uses shorter duration for faster response.
+    """
+    global _whisper_model
+    
+    if _whisper_model is None:
+        _init_whisper()
+    
+    audio = _record_audio(duration=timeout, silence_duration=0.5)
+    if audio is None:
+        return None
+    
+    try:
+        result = _whisper_model.transcribe(
+            audio,
+            language="en", 
+            fp16=False,
+            temperature=0,
+        )
+        return result.get("text", "").strip() or None
+    except Exception:
+        return None
+
+
+def listen_for_interrupt(timeout: float = 1.5) -> Tuple[bool, Optional[str], str]:
+    """
+    Quick check for interrupt commands during action execution.
+    
+    Returns (was_interrupted, raw_text, intent)
+    """
+    text = quick_listen(timeout)
+    if not text:
+        return False, None, "none"
+    
+    is_interrupt, intent = classify_interrupt(text)
+    if is_interrupt:
+        set_interrupt()
+    
+    return is_interrupt, text, intent

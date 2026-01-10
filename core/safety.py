@@ -26,10 +26,26 @@ PROTECTED_APPS = {
 
 @dataclass(frozen=True)
 class SafetyDecision:
+    """Result of a safety check on an action."""
     allowed: bool
     reason: str
     requires_confirmation: bool
     prompt: Optional[str] = None
+    
+    @classmethod
+    def allow(cls, reason: str = "ok") -> "SafetyDecision":
+        """Create a decision that allows the action without confirmation."""
+        return cls(allowed=True, reason=reason, requires_confirmation=False)
+    
+    @classmethod
+    def allow_with_confirmation(cls, prompt: str, reason: str = "ok") -> "SafetyDecision":
+        """Create a decision that allows the action but requires confirmation."""
+        return cls(allowed=True, reason=reason, requires_confirmation=True, prompt=prompt)
+    
+    @classmethod
+    def block(cls, reason: str, message: str) -> "SafetyDecision":
+        """Create a decision that blocks the action."""
+        return cls(allowed=False, reason=reason, requires_confirmation=False, prompt=message)
 
 
 def check_step(step: ActionStep) -> SafetyDecision:
@@ -96,7 +112,52 @@ def check_step(step: ActionStep) -> SafetyDecision:
             return SafetyDecision(False, "missing content", False, "What should the note say?")
         return SafetyDecision(True, "ok", False)
 
-    if intent == Intent.QUERY_ACTIVITY:
+    if intent == Intent.CONTACTS:
+        # Safe: read-only
+        return SafetyDecision(True, "ok", False)
+
+    if intent == Intent.CALENDAR:
+        # Create/open/search calendar can be sensitive; require confirmation for create
+        op = str(args.get("operation", "") or "").lower()
+        if op == "create":
+            title = str(args.get("title", "") or "").strip()
+            date = str(args.get("date", "") or args.get("startDate", "") or "").strip()
+            time = str(args.get("time", "") or args.get("startTime", "") or "").strip()
+            
+            # Build descriptive confirmation
+            desc_parts = []
+            if title:
+                desc_parts.append(f'"{title}"')
+            if date:
+                desc_parts.append(f"on {date}")
+            if time:
+                desc_parts.append(f"at {time}")
+            
+            if desc_parts:
+                desc = " ".join(desc_parts)
+            else:
+                desc = "a new event"
+            
+            return SafetyDecision(True, "ok", True, f"I'll create {desc}. Confirm?")
+        return SafetyDecision(True, "ok", False)
+
+    if intent == Intent.REMINDERS:
+        op = str(args.get("operation", "") or "").lower()
+        if op == "create":
+            name = str(args.get("name", "") or "").strip() or "a reminder"
+            return SafetyDecision(True, "ok", True, f"I'll create a reminder ({name}). Confirm?")
+        return SafetyDecision(True, "ok", False)
+
+    if intent == Intent.MAPS:
+        # Maps is safe (search/directions/pin/save)
+        return SafetyDecision(True, "ok", False)
+
+    if intent == Intent.MAIL:
+        op = str(args.get("operation", "") or "").lower()
+        if op == "send":
+            to = str(args.get("to", "") or "").strip()
+            subject = str(args.get("subject", "") or "").strip()
+            return SafetyDecision(True, "ok", True, f"I'll send an email to {to} ({subject}). Confirm?")
         return SafetyDecision(True, "ok", False)
 
     # ═══════════════════════════════════════════════════════════════════════
@@ -161,6 +222,8 @@ def check_command(cmd: Command) -> SafetyDecision:
 
     requires_confirmation = False
     custom_prompt = None
+    close_targets: list[str] = []
+    other_confirmations: list[str] = []
 
     for step in cmd.steps:
         d = check_step(step)
@@ -169,8 +232,31 @@ def check_command(cmd: Command) -> SafetyDecision:
         
         if d.requires_confirmation:
             requires_confirmation = True
-            if d.prompt:
-                custom_prompt = d.prompt
+            
+            # Collect close targets for combined prompt
+            if step.intent == Intent.CLOSE_APP:
+                app = (step.args or {}).get("app_name", "")
+                if app:
+                    close_targets.append(app)
+            elif d.prompt:
+                other_confirmations.append(d.prompt)
+
+    # Build combined prompt
+    if close_targets:
+        if len(close_targets) == 1:
+            close_msg = f"I'll close {close_targets[0]}. Confirm?"
+        elif len(close_targets) == 2:
+            close_msg = f"I'll close {close_targets[0]} and {close_targets[1]}. Confirm?"
+        else:
+            all_but_last = ", ".join(close_targets[:-1])
+            close_msg = f"I'll close {all_but_last}, and {close_targets[-1]}. Confirm?"
+        
+        if other_confirmations:
+            custom_prompt = close_msg + " Also: " + " ".join(other_confirmations)
+        else:
+            custom_prompt = close_msg
+    elif other_confirmations:
+        custom_prompt = other_confirmations[0]
 
     return SafetyDecision(True, "ok", requires_confirmation, custom_prompt)
 
