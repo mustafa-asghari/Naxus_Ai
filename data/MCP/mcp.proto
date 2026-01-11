@@ -1,0 +1,122 @@
+syntax = "proto3";
+
+package nexus;
+
+// Nexus MCP Service - High-performance gRPC interface for memory and tools
+service NexusMCP {
+  // Memory operations
+  rpc AppendEvent (AppendEventRequest) returns (AppendEventResponse);
+  rpc GetRecentHistory (GetHistoryRequest) returns (GetHistoryResponse);
+  
+  // Notes/Memory CRUD
+  rpc InsertNote (InsertNoteRequest) returns (NoteResponse);
+  rpc SearchNotes (SearchRequest) returns (SearchNotesResponse);
+  rpc DeleteNote (DeleteNoteRequest) returns (DeleteResponse);
+  rpc ListNotes (ListNotesRequest) returns (ListNotesResponse);
+  
+  // Chat history search
+  rpc SearchHistory (SearchRequest) returns (SearchHistoryResponse);
+  
+  // Generic tool call (fallback for any tool)
+  rpc CallTool (ToolCallRequest) returns (ToolCallResponse);
+}
+
+// Common messages
+message AppendEventRequest {
+  string kind = 1;
+  string payload_json = 2;  // JSON string for flexibility
+  string session_id = 3;
+  repeated string tags = 4;
+}
+
+message AppendEventResponse {
+  bool ok = 1;
+  string event_id = 2;
+  string error = 3;
+}
+
+message GetHistoryRequest {
+  string session_id = 1;
+  int32 limit = 2;
+}
+
+message GetHistoryResponse {
+  repeated string history = 1;
+}
+
+message InsertNoteRequest {
+  string content = 1;
+  string title = 2;
+  string deadline = 3;
+  repeated string tags = 4;
+  float confidence = 5;
+}
+
+message NoteResponse {
+  bool ok = 1;
+  string note_id = 2;
+  string error = 3;
+}
+
+message SearchRequest {
+  string query = 1;
+  int32 limit = 2;
+}
+
+message SearchNotesResponse {
+  int32 count = 1;
+  repeated NoteItem items = 2;
+}
+
+message NoteItem {
+  string id = 1;
+  string title = 2;
+  string content = 3;
+  string deadline = 4;
+  repeated string tags = 5;
+  float confidence = 6;
+  float score = 7;
+}
+
+message DeleteNoteRequest {
+  string note_id = 1;
+}
+
+message DeleteResponse {
+  bool ok = 1;
+  string deleted_id = 2;
+  string error = 3;
+}
+
+message ListNotesRequest {
+  int32 limit = 1;
+}
+
+message ListNotesResponse {
+  bool ok = 1;
+  int32 count = 2;
+  repeated NoteItem notes = 3;
+}
+
+message SearchHistoryResponse {
+  repeated HistoryItem results = 1;
+}
+
+message HistoryItem {
+  string timestamp = 1;
+  string role = 2;
+  string text = 3;
+  float score = 4;
+}
+
+// Generic tool call for any tool
+message ToolCallRequest {
+  string tool_name = 1;
+  string args_json = 2;  // JSON string of arguments
+}
+
+message ToolCallResponse {
+  bool ok = 1;
+  string result_json = 2;  // JSON string of result
+  string error = 3;
+}

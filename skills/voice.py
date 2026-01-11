@@ -31,6 +31,11 @@ WHISPER_MODEL = os.getenv("NEXUS_WHISPER_MODEL", "large-v3")
 WHISPER_DEVICE = os.getenv("NEXUS_WHISPER_DEVICE", "cpu")  # cpu or cuda
 WHISPER_COMPUTE = os.getenv("NEXUS_WHISPER_COMPUTE", "int8")  # int8, float16, float32
 
+# TTS Provider: "say" (macOS, instant) or "edge" (Microsoft neural, better quality but slower)
+TTS_PROVIDER = os.getenv("NEXUS_TTS_PROVIDER", "say")  # say is faster, edge is better quality
+TTS_VOICE = os.getenv("NEXUS_TTS_VOICE", "en-AU-WilliamNeural")  # For edge-tts
+TTS_RATE = os.getenv("NEXUS_TTS_RATE", "+40%")  # For edge-tts
+
 # Audio settings
 SAMPLE_RATE = 16000
 CHANNELS = 1
@@ -40,7 +45,7 @@ CHUNK_SIZE = 512
 # Higher = less sensitive (won't trigger on speaker output)
 VOLUME_THRESHOLD_INTERRUPT = 1500  # Lowered for better interrupt detection
 VOLUME_THRESHOLD_SPEECH = 500      # Lower for recording
-DEBUG_AUDIO = True  # Set to False to disable audio level debug output
+DEBUG_AUDIO = False  # Set to True to see audio level debug output
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # GLOBAL STATE
@@ -194,7 +199,7 @@ def check_interrupt_word(text: str) -> bool:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def stop_speaking() -> None:
-    """Kill the current 'say' process immediately."""
+    """Kill the current speech process immediately."""
     global _current_speech_process
     if _current_speech_process:
         try:
@@ -205,10 +210,45 @@ def stop_speaking() -> None:
         _current_speech_process = None
 
 
+def _speak_edge_tts(text: str) -> subprocess.Popen:
+    """Start edge-tts speech and return the process (async playback)."""
+    import tempfile
+    
+    # Generate audio to temp file using edge-tts CLI (avoids async issues)
+    temp_file = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+    temp_path = temp_file.name
+    temp_file.close()
+    
+    # Use edge-tts CLI to generate audio (blocking but fast)
+    result = subprocess.run(
+        ["edge-tts", "--voice", TTS_VOICE, "--rate", TTS_RATE, "--text", text, "--write-media", temp_path],
+        capture_output=True,
+        timeout=30
+    )
+    
+    if result.returncode != 0:
+        raise RuntimeError(f"edge-tts failed: {result.stderr.decode()}")
+    
+    # Play with afplay (macOS) - returns immediately, plays in background
+    return subprocess.Popen(
+        ["afplay", temp_path],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+
+
+def _speak_macos_say(text: str) -> subprocess.Popen:
+    """Start macOS say speech and return the process."""
+    return subprocess.Popen(
+        ["say", "-v", "Evan", "-r", "230", text],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+
+
 def speak_text(text: str, allow_interrupt: bool = True) -> bool:
     """
     Speak text with optional voice interrupt detection.
     Returns True if completed, False if interrupted.
+    Uses edge-tts (neural) or macOS say based on config.
     """
     global _current_speech_process, _vad_model
     
@@ -220,10 +260,15 @@ def speak_text(text: str, allow_interrupt: bool = True) -> bool:
     
     print(f"[NEXUS] Speaking: {text[:50]}...")
 
-    _current_speech_process = subprocess.Popen(
-        ["say", "-v", "Evan", "-r", "230", text],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-    )
+    # Start TTS based on provider
+    try:
+        if TTS_PROVIDER == "edge":
+            _current_speech_process = _speak_edge_tts(text)
+        else:
+            _current_speech_process = _speak_macos_say(text)
+    except Exception as e:
+        print(f"[NEXUS] TTS error, falling back to say: {e}")
+        _current_speech_process = _speak_macos_say(text)
 
     if not allow_interrupt:
         _current_speech_process.wait()
@@ -284,10 +329,21 @@ def speak_text(text: str, allow_interrupt: bool = True) -> bool:
 def speak_quick(text: str) -> None:
     """Quick speak without interrupt monitoring (for confirmations)."""
     stop_speaking()
-    subprocess.run(
-        ["say", "-v", "Evan", "-r", "230", text],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-    )
+    try:
+        if TTS_PROVIDER == "edge":
+            proc = _speak_edge_tts(text)
+            proc.wait()  # Wait for completion
+        else:
+            subprocess.run(
+                ["say", "-v", "Evan", "-r", "230", text],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+    except Exception as e:
+        print(f"[NEXUS] Quick TTS error: {e}")
+        subprocess.run(
+            ["say", "-v", "Evan", "-r", "230", text],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

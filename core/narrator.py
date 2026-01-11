@@ -1,26 +1,33 @@
-import json, os
-from typing import Any, Dict
+import json, os, re
+from typing import Any, Dict, Generator
 from openai import OpenAI
 
 _client: OpenAI | None = None
 
+# LLM Provider config
+LLM_PROVIDER = os.getenv("NEXUS_LLM_PROVIDER", "local")
+LLM_LOCAL_BASE = os.getenv("NEXUS_LLM_LOCAL_BASE", "http://127.0.0.1:1234/v1")
+LLM_LOCAL_MODEL = os.getenv("NEXUS_LLM_LOCAL_MODEL", "qwen/qwen3-vl-8b")
+LLM_MAX_TOKENS = int(os.getenv("NEXUS_LLM_MAX_TOKENS", "150"))  # Short for narrator
+
+
 def _get_client() -> OpenAI:
     global _client
     if _client is None:
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise RuntimeError("OPENAI_API_KEY is not set")
-        _client = OpenAI(api_key=api_key)
+        if LLM_PROVIDER == "local":
+            _client = OpenAI(
+                base_url=LLM_LOCAL_BASE,
+                api_key="lm-studio"
+            )
+        else:
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                raise RuntimeError("OPENAI_API_KEY is not set")
+            _client = OpenAI(api_key=api_key)
     return _client
 
-# ... imports ...
 
-def narrate_turn(user_text: str, tool_bundle: Dict[str, Any]) -> str:
-    client = _get_client()
-    model = os.getenv("NEXUS_NARRATE_MODEL", "gpt-4o-mini")
-
-    # UPDATED: Human-like Persona
-    system_prompt = """
+NARRATOR_PROMPT = """
 You are Nexus. You are a helpful, casual male assistant.
 You were created by Mustafa Asghari.
 
@@ -40,12 +47,67 @@ Functional Rules:
 - only save what user tells you do not save anything else 
 """
 
+
+def narrate_turn(user_text: str, tool_bundle: Dict[str, Any]) -> str:
+    """Non-streaming narrator - returns full response."""
+    client = _get_client()
+    
+    if LLM_PROVIDER == "local":
+        model = LLM_LOCAL_MODEL
+    else:
+        model = os.getenv("NEXUS_NARRATE_MODEL", "gpt-4o-mini")
+
     resp = client.chat.completions.create(
         model=model,
-        temperature=0.7, # Increased slightly for more "creativity/naturalness"
+        temperature=0.7,
+        max_tokens=LLM_MAX_TOKENS,  # Limit for speed
         messages=[
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": NARRATOR_PROMPT},
             {"role": "user", "content": f"USER:\n{user_text}\n\nTOOL_RESULTS:\n{json.dumps(tool_bundle, ensure_ascii=False)}"},
         ],
     )
     return (resp.choices[0].message.content or "").strip() or "…"
+
+
+def narrate_turn_streaming(user_text: str, tool_bundle: Dict[str, Any]) -> Generator[str, None, None]:
+    """
+    Streaming narrator - yields sentences as they're generated.
+    Use this for real-time TTS (speak while generating).
+    """
+    client = _get_client()
+    
+    if LLM_PROVIDER == "local":
+        model = LLM_LOCAL_MODEL
+    else:
+        model = os.getenv("NEXUS_NARRATE_MODEL", "gpt-4o-mini")
+
+    stream = client.chat.completions.create(
+        model=model,
+        temperature=0.7,
+        stream=True,  # Enable streaming
+        messages=[
+            {"role": "system", "content": NARRATOR_PROMPT},
+            {"role": "user", "content": f"USER:\n{user_text}\n\nTOOL_RESULTS:\n{json.dumps(tool_bundle, ensure_ascii=False)}"},
+        ],
+    )
+    
+    # Buffer to accumulate text until we have a complete sentence
+    buffer = ""
+    sentence_endings = re.compile(r'[.!?]\s*')
+    
+    for chunk in stream:
+        if chunk.choices[0].delta.content:
+            buffer += chunk.choices[0].delta.content
+            
+            # Check if we have a complete sentence
+            matches = list(sentence_endings.finditer(buffer))
+            if matches:
+                last_match = matches[-1]
+                sentence = buffer[:last_match.end()].strip()
+                buffer = buffer[last_match.end():]
+                if sentence:
+                    yield sentence
+    
+    # Yield any remaining text
+    if buffer.strip():
+        yield buffer.strip()

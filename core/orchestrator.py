@@ -24,7 +24,7 @@ from core.models import ActionStep, Command, Result
 from core.intent import Intent
 from core.safety import check_command, SafetyDecision
 from core.planner import plan_turn, TurnPlan
-from core.narrator import narrate_turn
+from core.narrator import narrate_turn, narrate_turn_streaming
 
 # Supermemory integration for graph-based AI memory
 from data.supermemory_client import (
@@ -46,232 +46,15 @@ from skills.discord import send_discord_message, read_active_window
 
 from macos.running_apps import get_running_apps, get_frontmost_app
 
-from data.MCP.mcp_client import MCPMemoryClient
 from data.MCP.apple_mcp_client import AppleMCPClient
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# CONFIGURATION
-# ═══════════════════════════════════════════════════════════════════════════════
-
-WRITE_CONFIDENCE_AUTO = 0.65
-WRITE_CONFIDENCE_ASK = 0.60
-
-_SECRET_PATTERNS = [
-    r"sk-[A-Za-z0-9]{20,}",
-    r"-----BEGIN [A-Z ]+PRIVATE KEY-----",
-    r"password\s*[:=]\s*\S+",
-]
-
-_TLD_PATTERN = r"(com|net|org|io|ai|app|dev|edu|gov|co|uk|au)"
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# HELPER FUNCTIONS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def redact(text: str) -> str:
-    """Redact sensitive patterns from text."""
-    out = text
-    for p in _SECRET_PATTERNS:
-        out = re.sub(p, "[REDACTED]", out, flags=re.IGNORECASE)
-    return out
-
-
-def detect_url(text: str) -> Optional[str]:
-    """
-    Best-effort URL detector for voice input like:
-      - "open google.com"
-      - "go to youtube dot com"
-    Returns a normalized URL with https:// prefix if needed.
-    """
-    if not text:
-        return None
-    t = text.strip().lower()
-
-    # Convert common spoken patterns
-    for tld in ["com", "net", "org", "io", "ai", "app", "dev", "edu", "gov", "co", "uk", "au"]:
-        t = re.sub(rf"\bdot\s+{tld}\b", f".{tld}", t)
-
-    t = re.sub(r"\s*\.\s*", ".", t)
-    t = re.sub(r"\s*/\s*", "/", t)
-
-    m = re.search(rf"((?:https?://)?(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*\.{_TLD_PATTERN}(?:/[^\s]*)?)", t)
-    if not m:
-        return None
-    url = m.group(1).strip().rstrip(".,)")
-    if not url:
-        return None
-    if not url.startswith(("http://", "https://")):
-        url = "https://" + url
-    return url
-
-
-def detect_close_targets(raw: str, running_apps: list[str]) -> list[str]:
-    """
-    If the user asks to close apps, match mentioned app names
-    against the current running apps list. Supports multiple apps.
-    """
-    if not raw:
-        return []
-    t = raw.lower()
-    if "close" not in t and "quit" not in t and "exit" not in t:
-        return []
-    if "close all" in t or "quit everything" in t or "close everything" in t:
-        return []
-
-    matches: list[tuple[int, str]] = []
-    for app in running_apps:
-        al = app.lower()
-        aliases = {al}
-        
-        # Common app aliases
-        if "google chrome" in al:
-            aliases.add("chrome")
-        if "visual studio code" in al:
-            aliases.update(["vscode", "code", "vs code"])
-        if "messages" == al:
-            aliases.add("message")
-        if "system settings" == al:
-            aliases.add("settings")
-        if "notes" == al:
-            aliases.update(["notes", "note"])
-        if "safari" in al:
-            aliases.add("safari")
-        if "finder" in al:
-            aliases.add("finder")
-        if "discord" in al:
-            aliases.add("discord")
-        if "terminal" in al:
-            aliases.add("terminal")
-        if "music" in al or "itunes" in al:
-            aliases.update(["music", "itunes"])
-        if "spotify" in al:
-            aliases.add("spotify")
-        if "slack" in al:
-            aliases.add("slack")
-        if "zoom" in al:
-            aliases.add("zoom")
-        if "teams" in al or "microsoft teams" in al:
-            aliases.add("teams")
-        if "word" in al or "microsoft word" in al:
-            aliases.add("word")
-        if "excel" in al or "microsoft excel" in al:
-            aliases.add("excel")
-        if "preview" in al:
-            aliases.add("preview")
-        if "calendar" in al:
-            aliases.add("calendar")
-        if "mail" in al:
-            aliases.add("mail")
-        if "photos" in al:
-            aliases.add("photos")
-        if "reminders" in al:
-            aliases.add("reminders")
-        if "xcode" in al:
-            aliases.add("xcode")
-        if "cursor" in al:
-            aliases.add("cursor")
-
-        for a in aliases:
-            if not a or len(a) < 3:
-                continue
-            idx = t.find(a)
-            if idx != -1:
-                matches.append((idx, app))
-                break
-
-    matches.sort(key=lambda x: x[0])
-    out: list[str] = []
-    seen = set()
-    for _i, app in matches:
-        if app not in seen:
-            seen.add(app)
-            out.append(app)
-    return out
-
-
-def looks_like_phone_or_email(s: str) -> bool:
-    """Check if string looks like a phone number or email."""
-    ss = (s or "").strip()
-    if not ss:
-        return False
-    return bool(re.fullmatch(r"[+\d][\d\s().-]{6,}", ss) or re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", ss))
-
-
-def parse_contacts_tool_text(text: str) -> tuple[str, list[str]]:
-    """Parse apple-mcp contacts tool response."""
-    t = (text or "").strip()
-    if not t:
-        return "", []
-    if ":" not in t:
-        return t.strip(), []
-    name, rest = t.split(":", 1)
-    handles = [h.strip() for h in rest.split(",") if h.strip()]
-    return name.strip(), handles
-
-
-def is_confirmation_positive(user_text: str) -> bool:
-    """Determine if user's response means YES or NO."""
-    if not user_text:
-        return False
-
-    clean = user_text.lower().strip()
-    
-    positive_words = {
-        "yes", "yeah", "yep", "yup", "sure", "ok", "okay", "alright",
-        "do it", "confirm", "confirmed", "go ahead", "proceed", "affirmative",
-        "absolutely", "definitely", "of course", "for sure", "go for it",
-        "please", "please do", "yes please", "that's right", "correct",
-        "right", "uh huh", "mm hmm", "yea", "ya", "yas", "yah",
-        # Fuzzy matches for common misrecognitions
-        "confer", "conf", "confir", "confirme", "go for",
-        "yep yep", "yes yes", "uh-huh", "mhm"
-    }
-    
-    negative_words = {
-        "no", "nah", "nope", "cancel", "stop", "don't", "abort",
-        "never", "negative", "no way", "not now", "wait", "hold on",
-        "actually no", "no thanks", "nope nope"
-    }
-
-    # Direct match
-    if clean in positive_words:
-        return True
-    if clean in negative_words:
-        return False
-
-    # Partial match
-    for phrase in positive_words:
-        if phrase in clean and len(phrase) > 2:
-            return True
-
-    for phrase in negative_words:
-        if phrase in clean and len(phrase) > 2:
-            return False
-
-    # Fuzzy: starts with positive prefix
-    if clean.startswith(("ye", "su", "ok", "al", "go", "conf", "uh", "mm")):
-        return True
-
-    # Default to no for safety
-    return False
-
-
-def expand_steps(actions: list[ActionStep]) -> list[ActionStep]:
-    """Expand meta-actions like CLOSE_ALL_APPS into individual steps."""
-    expanded: list[ActionStep] = []
-    for step in actions:
-        if step.intent == Intent.CLOSE_ALL_APPS:
-            apps = get_running_apps()
-            print(f"[CLOSE_ALL] Found {len(apps)} apps to close: {apps}")
-            if not apps:
-                print("[CLOSE_ALL] No apps found to close (get_running_apps returned empty)")
-            for app in apps:
-                expanded.append(ActionStep(Intent.CLOSE_APP, {"app_name": app}))
-        else:
-            expanded.append(step)
-    return expanded
+# Import helpers from dedicated module
+from core.helpers import (
+    redact, detect_url, detect_close_targets,
+    looks_like_phone_or_email, parse_contacts_tool_text,
+    is_confirmation_positive, expand_steps,
+    WRITE_CONFIDENCE_AUTO, WRITE_CONFIDENCE_ASK
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -372,7 +155,6 @@ class NexusOrchestrator:
         ]):
             print("Nexus: Shutting down.")
             speak_text("Shutting down. Goodbye.")
-            import os
             os._exit(0)
         
         if any(phrase in raw_lower for phrase in [
@@ -380,7 +162,6 @@ class NexusOrchestrator:
         ]):
             print("Nexus: Restarting.")
             speak_text("Restarting myself now.")
-            import os, sys
             os.execv(sys.executable, ['python'] + sys.argv)
         
         # Log user event
@@ -396,14 +177,36 @@ class NexusOrchestrator:
         app_list = get_running_apps()
         history_text = "\n".join(self.chat_history[-4:])
         
+        # Define callback for streaming TTS
+        spoke_ref = [False]
+        def on_speak_cb(text: str):
+            spoke_ref[0] = True
+            print(f"Nexus (Stream): {text}")
+            # Run TTS in a thread so it doesn't block parsing/actions
+            import threading
+            threading.Thread(target=speak_text, args=(text,), daemon=True).start()
+
         plan = plan_turn(
             raw,
             history=history_text,
-            context=f"Running Apps: {', '.join(app_list)}"
+            context=f"Running Apps: {', '.join(app_list)}",
+            on_speak=on_speak_cb
         )
         
         # Apply deterministic overrides
         plan = self._apply_overrides(plan, raw, app_list)
+        
+        # 1. IMMEDIATE RESPONSE (Single LLM Call Optimization)
+        # 1. IMMEDIATE RESPONSE (Single LLM Call Optimization)
+        # If the planner generated a response, speak it immediately (if not already streamed).
+        initial_reply = ""
+        if plan.response_text:
+            initial_reply = plan.response_text
+            if not spoke_ref[0]:
+                print(f"Nexus (Plan): {initial_reply}")
+                # Run TTS in a thread so it doesn't block action execution
+                import threading
+                threading.Thread(target=speak_text, args=(initial_reply,), daemon=True).start()
         
         # Build tool result bundle
         tool_bundle: Dict[str, Any] = {
@@ -422,29 +225,77 @@ class NexusOrchestrator:
         for step in expanded_actions:
             if step.intent == Intent.EXIT:
                 print("Nexus: Going to sleep.")
-                speak_text("Going to sleep.")
+                if not initial_reply:
+                    speak_text("Going to sleep.")
                 return False
         
         # Execute if we have actions
         if expanded_actions:
             await self._execute_actions(expanded_actions, raw, tool_bundle)
+            
+        # 2. CONDITIONAL FOLLOW-UP NARRATION
+        # We only call the Narrator LLM if we retrieved data or encountered errors.
+        # Simple actions (Open App, Write Note) are considered complete with the initial response.
         
-        # Narrate response
-        reply = narrate_turn(raw, tool_bundle)
-        print(f"Nexus: {reply}")
-        speak_text(reply)
+        needs_narration = False
         
+        # Check if any action failed
+        if any(not a.get("ok", True) for a in tool_bundle["actions"]):
+            needs_narration = True
+            
+        # Check if we have retrieval results (Search, Read, Recall, etc.)
+        retrieval_intents = {
+            Intent.SEARCH_WEB, Intent.READ_SCREEN, Intent.READ_MESSAGES,
+            Intent.RECALL_MEMORY, Intent.LIST_MEMORIES, Intent.CONTACTS,
+            Intent.MAPS  # Maps often returns search results
+        }
+        # Also check Mail/Calendar/Reminders if they were 'list'/'search' operations
+        # (This is harder to check from just intent, so we check if 'data' or 'message' contains results)
+        
+        for step in expanded_actions:
+            if step.intent in retrieval_intents:
+                needs_narration = True
+                break
+            # Heuristic for other apps: if operation was list/search/unread
+            if step.intent in {Intent.MAIL, Intent.CALENDAR, Intent.REMINDERS}:
+                op = str((step.args or {}).get("operation", "")).lower()
+                if op in {"list", "search", "unread", "latest"}:
+                    needs_narration = True
+                    break
+
+        final_reply = initial_reply
+        
+        if needs_narration:
+            # Check if streaming TTS is enabled
+            use_streaming = os.getenv("NEXUS_STREAM_TTS", "false").lower() in ("true", "1", "yes")
+            
+            print("Nexus: Generating follow-up narration...")
+            if use_streaming:
+                # Streaming mode: speak sentences as they're generated
+                followup_text = ""
+                for sentence in narrate_turn_streaming(raw, tool_bundle):
+                    followup_text += sentence + " "
+                    print(f"Nexus (Narrator): {sentence}")
+                    speak_text(sentence, allow_interrupt=True)
+                final_reply += " " + followup_text.strip()
+            else:
+                # Non-streaming mode
+                followup = narrate_turn(raw, tool_bundle)
+                print(f"Nexus (Narrator): {followup}")
+                speak_text(followup)
+                final_reply += " " + followup
+
         # Log assistant reply
         await self.mcp.call("pg_append_event", {
             "kind": "assistant_reply",
-            "payload": {"text": redact(reply), "tools": tool_bundle},
+            "payload": {"text": redact(final_reply), "tools": tool_bundle},
             "session_id": self.session_id,
             "tags": ["assistant"],
         })
         
         # Update history
         self.chat_history.append(f"User: {raw}")
-        self.chat_history.append(f"Nexus: {reply}")
+        self.chat_history.append(f"Nexus: {final_reply}")
         
         return True
     
@@ -497,7 +348,8 @@ class NexusOrchestrator:
         return TurnPlan(
             memory_read=plan.memory_read,
             memory_write=plan.memory_write,
-            actions=actions
+            actions=actions,
+            response_text=plan.response_text
         )
     
     async def _handle_memory_ops(

@@ -28,7 +28,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from core.orchestrator import NexusOrchestrator
-from data.MCP.mcp_client import MCPMemoryClient
+from data.MCP.mcp_grpc_client import MCPGrpcClient
 from data.MCP.apple_mcp_client import AppleMCPClient
 
 
@@ -36,7 +36,7 @@ def configure_logging() -> logging.Logger:
     """Configure logging for Nexus."""
     level = getattr(logging, os.getenv("NEXUS_LOG_LEVEL", "INFO").upper())
     logging.basicConfig(
-        level=level,
+        level=level,    
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     # Suppress noisy libraries
@@ -88,12 +88,34 @@ async def main() -> int:
     load_dotenv()
     log = configure_logging()
     
+    # Check LLM configuration
+    llm_provider = os.getenv("NEXUS_LLM_PROVIDER", "local")
+    tts_provider = os.getenv("NEXUS_TTS_PROVIDER", "edge")
+    tts_rate = os.getenv("NEXUS_TTS_RATE", "+40%")
+    stream_tts = os.getenv("NEXUS_STREAM_TTS", "true").lower() in ("true", "1", "yes")
+    
+    print(f"[NEXUS] Config: LLM={llm_provider}, TTS={tts_provider} ({tts_rate}), Streaming={stream_tts}")
+    
+    # Check LM Studio if using local LLM
+    if llm_provider == "local":
+        import httpx
+        lm_url = os.getenv("NEXUS_LLM_LOCAL_BASE", "http://127.0.0.1:1234/v1")
+        try:
+            r = httpx.get(f"{lm_url}/models", timeout=2)
+            if r.status_code == 200:
+                print(f"[NEXUS] ✓ LM Studio connected at {lm_url}")
+            else:
+                print(f"[NEXUS] ⚠ LM Studio responded but status {r.status_code}")
+        except Exception:
+            print(f"[NEXUS] ⚠ LM Studio not found at {lm_url}")
+            print("[NEXUS] ⚠ Falling back to OpenAI API")
+            os.environ["NEXUS_LLM_PROVIDER"] = "openai"
+    
     base_dir = Path(__file__).resolve().parent
-    server_path = base_dir / "data" / "MCP" / "mcp_server.py"
     apple_mcp_dir = base_dir / "apple_mcp" / "apple-mcp"
     
-    # Initialize MCP clients
-    mcp = MCPMemoryClient(server_cmd=[sys.executable, str(server_path)])
+    # Initialize MCP clients - using gRPC for speed
+    mcp = MCPGrpcClient()  # Connects to gRPC server at localhost:50051
     apple_cmd = resolve_apple_mcp_command(base_dir)
     apple = AppleMCPClient(server_cmd=apple_cmd, cwd=str(apple_mcp_dir))
     
