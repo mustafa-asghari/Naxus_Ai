@@ -196,6 +196,26 @@ def check_step(step: ActionStep) -> SafetyDecision:
         return SafetyDecision(True, "ok", False)
 
     # ═══════════════════════════════════════════════════════════════════════
+    # MEMORY CRUD (Safe - user explicitly controls their own memory)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    if intent == Intent.REMEMBER_THIS:
+        return SafetyDecision(True, "ok", False)  # Safe to store
+
+    if intent == Intent.RECALL_MEMORY:
+        return SafetyDecision(True, "ok", False)  # Safe to search
+
+    if intent == Intent.UPDATE_MEMORY:
+        return SafetyDecision(True, "ok", False)  # Safe to update
+
+    if intent == Intent.FORGET_THIS:
+        query = (args.get("query", "") or "").strip()
+        return SafetyDecision(True, "ok", False)  # User controls their own memory
+
+    if intent == Intent.LIST_MEMORIES:
+        return SafetyDecision(True, "ok", False)  # Safe to list
+
+    # ═══════════════════════════════════════════════════════════════════════
     # NEXUS CONTROL (Requires confirmation for destructive actions)
     # ═══════════════════════════════════════════════════════════════════════
 

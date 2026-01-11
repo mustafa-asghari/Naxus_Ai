@@ -254,13 +254,39 @@ COMPLETE SKILL REFERENCE
 │   Examples: "note that I need to buy milk", "write a note about the meeting"│
 │   Effect: Creates note in Apple Notes app                                  │
 │                                                                             │
-│ memory_read {"query": "...", "limit": 5}                                   │
-│   Triggers: "what's my goal", "what did I say about", "my plans for"       │
-│   Examples: "what's my goal for 2026", "what did I tell you about work"    │
+│ REMEMBER_THIS {"content": "...", "title": "...", "tags": [...]}            │
+│   Triggers: "remember that", "store this", "save to memory", "don't forget"│
+│   Examples: "remember my brother's birthday is January 15th"               │
+│             "remember that I like my coffee black"                         │
+│             "save to memory: my gym code is 1234"                          │
+│   Effect: Stores info in long-term vector memory (searchable later)        │
 │                                                                             │
+│ RECALL_MEMORY {"query": "..."}                                             │
+│   Triggers: "what do you remember about", "what did I tell you", "recall"  │
+│   Examples: "what's my brother's birthday?", "what did I tell you about gym"│
+│             "do you remember my coffee preference?"                        │
+│   Effect: Semantic search over stored memories                             │
+│                                                                             │
+│ UPDATE_MEMORY {"query": "...", "new_content": "..."}                       │
+│   Triggers: "update the memory about", "change what you remember", "correct"│
+│   Examples: "update my brother's birthday to January 16th"                 │
+│             "actually my gym code is 5678, not 1234"                       │
+│   Effect: Updates existing memory with new information                     │
+│                                                                             │
+│ FORGET_THIS {"query": "..."}                                               │
+│   Triggers: "forget about", "delete the memory", "remove", "erase"         │
+│   Examples: "forget my gym code", "delete the memory about coffee"         │
+│   Effect: Removes matching memory from storage                             │
+│                                                                             │
+│ LIST_MEMORIES {}                                                           │
+│   Triggers: "what do you remember", "list all memories", "show memories"   │
+│   Examples: "what do you remember about me?", "list everything you know"   │
+│   Effect: Lists all stored memories                                        │
+│                                                                             │
+│ memory_read {"query": "...", "limit": 5}  (auto-read for context)          │
 │ memory_write {"should_store": true, "confidence": 0.9, "note": {...}}      │
-│   Triggers: User states goals, deadlines, preferences, important facts     │
-│   Examples: "my goal is to...", "remember that I...", "I want to..."       │
+│   These are AUTO-DETECTED from conversation, you don't need explicit triggers│
+│   Store when: User states goals, deadlines, preferences, important facts   │
 │   Don't store: commands, casual chat, questions                            │
 └─────────────────────────────────────────────────────────────────────────────┘
 

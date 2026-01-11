@@ -26,6 +26,14 @@ from core.safety import check_command, SafetyDecision
 from core.planner import plan_turn, TurnPlan
 from core.narrator import narrate_turn
 
+# Supermemory integration for graph-based AI memory
+from data.supermemory_client import (
+    add_memory as supermemory_add,
+    search_memories as supermemory_search,
+    delete_memory as supermemory_delete,
+    list_memories as supermemory_list,
+)
+
 from skills.voice import (
     listen_to_user, speak_text, stop_speaking, speak_quick,
     init_voice, is_interrupted, clear_interrupt, check_interrupt_word
@@ -599,6 +607,107 @@ class NexusOrchestrator:
                        Intent.CONTACTS, Intent.MAIL, Intent.REMINDERS, 
                        Intent.CALENDAR, Intent.MAPS}:
             await self._execute_apple_mcp(step, tool_bundle)
+        
+        # Memory CRUD actions (using Supermemory API)
+        elif intent == Intent.REMEMBER_THIS:
+            content = (step.args or {}).get("content", "")
+            title = (step.args or {}).get("title", "")
+            tags = (step.args or {}).get("tags", [])
+            if content:
+                result = supermemory_add(
+                    content=content,
+                    metadata={"title": title} if title else {},
+                    tags=tags if isinstance(tags, list) else [],
+                )
+                tool_bundle["actions"].append({
+                    "intent": intent.value, 
+                    "ok": result.get("ok", False),
+                    "message": result.get("message", f"Remembered: {content[:50]}...")
+                })
+            else:
+                tool_bundle["actions"].append({
+                    "intent": intent.value, "ok": False, "message": "Nothing to remember"
+                })
+        
+        elif intent == Intent.RECALL_MEMORY:
+            query = (step.args or {}).get("query", "")
+            if query:
+                result = supermemory_search(query=query, limit=5)
+                items = result.get("results", [])
+                if items:
+                    # Format memories for response
+                    memory_text = "; ".join([i.get("content", "")[:100] for i in items[:3]])
+                    tool_bundle["actions"].append({
+                        "intent": intent.value, "ok": True,
+                        "message": f"Found memories: {memory_text}",
+                        "data": items
+                    })
+                else:
+                    tool_bundle["actions"].append({
+                        "intent": intent.value, "ok": True, 
+                        "message": "No memories found matching that query"
+                    })
+            else:
+                tool_bundle["actions"].append({
+                    "intent": intent.value, "ok": False, "message": "No search query provided"
+                })
+        
+        elif intent == Intent.UPDATE_MEMORY:
+            query = (step.args or {}).get("query", "")
+            new_content = (step.args or {}).get("new_content", "")
+            if query and new_content:
+                # With Supermemory, we delete old and add new (simpler API)
+                search_result = supermemory_search(query=query, limit=1)
+                items = search_result.get("results", [])
+                if items and items[0].get("id"):
+                    # Delete old memory
+                    supermemory_delete(items[0]["id"])
+                # Add new memory
+                result = supermemory_add(content=new_content)
+                tool_bundle["actions"].append({
+                    "intent": intent.value, "ok": result.get("ok", False),
+                    "message": f"Updated memory: {new_content[:50]}..."
+                })
+            else:
+                tool_bundle["actions"].append({
+                    "intent": intent.value, "ok": False, "message": "Missing query or new content"
+                })
+        
+        elif intent == Intent.FORGET_THIS:
+            query = (step.args or {}).get("query", "")
+            if query:
+                # Find and delete the memory
+                search_result = supermemory_search(query=query, limit=1)
+                items = search_result.get("results", [])
+                if items and items[0].get("id"):
+                    result = supermemory_delete(items[0]["id"])
+                    tool_bundle["actions"].append({
+                        "intent": intent.value, "ok": result.get("ok", False),
+                        "message": f"Deleted memory about: {query}"
+                    })
+                else:
+                    tool_bundle["actions"].append({
+                        "intent": intent.value, "ok": False, "message": "No memory found to delete"
+                    })
+            else:
+                tool_bundle["actions"].append({
+                    "intent": intent.value, "ok": False, "message": "What should I forget?"
+                })
+        
+        elif intent == Intent.LIST_MEMORIES:
+            result = supermemory_list(limit=10)
+            docs = result.get("documents", [])
+            if docs:
+                memory_list = "; ".join([d.get("content", "")[:80] for d in docs[:5]])
+                tool_bundle["actions"].append({
+                    "intent": intent.value, "ok": True,
+                    "message": f"Your memories: {memory_list}",
+                    "data": docs
+                })
+            else:
+                tool_bundle["actions"].append({
+                    "intent": intent.value, "ok": True, "message": "No memories stored yet"
+                })
         
         # Local skill actions
         elif intent in self._skill_handlers:

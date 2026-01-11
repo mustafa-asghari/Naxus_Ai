@@ -17,3 +17,4 @@ torchaudio<2.9
 rumps
 pystray
 faster_whisper
+supermemory

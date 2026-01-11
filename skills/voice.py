@@ -38,8 +38,9 @@ CHUNK_SIZE = 512
 
 # Volume threshold for interrupt detection
 # Higher = less sensitive (won't trigger on speaker output)
-VOLUME_THRESHOLD_INTERRUPT = 2500  # High to avoid self-trigger
+VOLUME_THRESHOLD_INTERRUPT = 1500  # Lowered for better interrupt detection
 VOLUME_THRESHOLD_SPEECH = 500      # Lower for recording
+DEBUG_AUDIO = True  # Set to False to disable audio level debug output
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # GLOBAL STATE
@@ -220,7 +221,7 @@ def speak_text(text: str, allow_interrupt: bool = True) -> bool:
     print(f"[NEXUS] Speaking: {text[:50]}...")
 
     _current_speech_process = subprocess.Popen(
-        ["say", "-v", "Evan", "-r", "210", text],
+        ["say", "-v", "Evan", "-r", "230", text],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
 
@@ -228,8 +229,8 @@ def speak_text(text: str, allow_interrupt: bool = True) -> bool:
         _current_speech_process.wait()
         return True
 
-    # Monitor for voice interrupt - use high threshold to avoid hearing speaker
-    CONFIDENCE_THRESHOLD = 0.7
+    # Monitor for voice interrupt - lowered threshold for better detection
+    CONFIDENCE_THRESHOLD = 0.4  # Was 0.7 - VAD shows lower probs during speech
     
     pa = _get_pyaudio()
     stream = pa.open(
@@ -254,10 +255,17 @@ def speak_text(text: str, allow_interrupt: bool = True) -> bool:
             mean_sq = np.mean(audio_int16.astype(np.float64)**2)
             rms_vol = np.sqrt(max(0, mean_sq))
 
+            # Debug: show audio levels occasionally
+            if DEBUG_AUDIO and int(rms_vol) % 100 == 0 and rms_vol > 500:
+                print(f"[AUDIO] Vol: {int(rms_vol)} (threshold: {VOLUME_THRESHOLD_INTERRUPT})")
+            
             if rms_vol > VOLUME_THRESHOLD_INTERRUPT:
                 audio_float32 = audio_int16.astype(np.float32) / 32768.0
                 tensor = torch.from_numpy(audio_float32)
                 speech_prob = _vad_model(tensor, SAMPLE_RATE).item()
+                
+                if DEBUG_AUDIO:
+                    print(f"[VAD] Vol: {int(rms_vol)}, Speech prob: {speech_prob:.2f}")
                 
                 if speech_prob > CONFIDENCE_THRESHOLD:
                     print(f"\n[INTERRUPT] Speech detected (Vol: {int(rms_vol)}, Prob: {speech_prob:.2f})")
